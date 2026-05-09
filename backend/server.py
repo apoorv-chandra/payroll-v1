@@ -5,17 +5,24 @@ import os
 import io
 import uuid
 import math
+import base64
+import asyncio
+import logging
 import bcrypt
 import jwt
+import resend
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List, Literal
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Request, Response, status, APIRouter
+from fastapi import FastAPI, HTTPException, Depends, Request, Response, status, APIRouter, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, EmailStr
 from motor.motor_asyncio import AsyncIOMotorClient
+
+logger = logging.getLogger("payroll")
+logging.basicConfig(level=logging.INFO)
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -31,6 +38,11 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@payroll.app").lower()
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "Payroll <onboarding@resend.dev>")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "")
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
 
 # ---------- DB ----------
 client: AsyncIOMotorClient = AsyncIOMotorClient(MONGO_URL)
@@ -272,6 +284,53 @@ async def audit(tenant_id: Optional[str], actor_id: str, action: str, target: Op
     })
 
 # ============================================================
+#                 EMAIL (Resend)
+# ============================================================
+EMAIL_LAYOUT = """
+<!doctype html><html><body style="margin:0;background:#F9FAFB;font-family:'Helvetica Neue',Arial,sans-serif;color:#0A0A0A;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F9FAFB;padding:24px 0;">
+  <tr><td align="center">
+    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;">
+      <tr><td style="padding:20px 24px;border-bottom:1px solid #F3F4F6;">
+        <table role="presentation" width="100%"><tr>
+          <td style="font-weight:700;font-size:18px;letter-spacing:-0.01em;">Payroll</td>
+          <td align="right" style="font-size:11px;color:#737373;text-transform:uppercase;letter-spacing:0.12em;">{tag}</td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding:24px;">{body}</td></tr>
+      <tr><td style="padding:16px 24px;border-top:1px solid #F3F4F6;font-size:11px;color:#9CA3AF;">
+        Sent by Payroll & Attendance. If this wasn't you, ignore this email.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>
+"""
+
+def render_email(tag: str, body_html: str) -> str:
+    return EMAIL_LAYOUT.format(tag=tag, body=body_html)
+
+async def send_email(to: str, subject: str, html: str, attachments: Optional[List[dict]] = None) -> Optional[str]:
+    """Non-blocking email send. Logs and swallows failures so app flows aren't blocked."""
+    if not RESEND_API_KEY:
+        logger.info(f"[email-mock] to={to} subject={subject}")
+        return None
+    params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
+    if attachments:
+        params["attachments"] = attachments
+    try:
+        res = await asyncio.to_thread(resend.Emails.send, params)
+        eid = (res or {}).get("id") if isinstance(res, dict) else getattr(res, "id", None)
+        logger.info(f"[email-sent] to={to} id={eid}")
+        return eid
+    except Exception as e:
+        logger.error(f"[email-fail] to={to} subject={subject} err={e}")
+        return None
+
+def login_url() -> str:
+    return f"{APP_BASE_URL}/login" if APP_BASE_URL else "/login"
+
+# ============================================================
 #                 AUTH
 # ============================================================
 @api.post("/auth/login", response_model=TokenResponse)
@@ -500,6 +559,25 @@ async def create_employee(req: CreateEmployeeRequest, user: dict = Depends(requi
     })
     await reset_leave_balances(user["tenant_id"], emp_id, req.joining_date)
     await audit(user["tenant_id"], user["_id"], "employee.create", emp_id, {"name": req.name})
+    # Welcome email with credentials
+    tenant_doc = await db.tenants.find_one({"_id": user["tenant_id"]})
+    company = (tenant_doc or {}).get("name", "Payroll")
+    body = f"""
+      <h2 style="margin:0 0 12px 0;font-size:20px;letter-spacing:-0.01em;">Welcome to {company} 👋</h2>
+      <p style="margin:0 0 16px 0;color:#4B5563;line-height:1.55;">
+        Your account has been created. You can now mark attendance, apply for leave and download salary slips from your phone.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;width:100%;font-size:14px;">
+        <tr><td style="padding:10px 14px;color:#737373;">Login email</td><td style="padding:10px 14px;font-weight:600;">{email}</td></tr>
+        <tr><td style="padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;">Password</td><td style="padding:10px 14px;font-family:monospace;border-top:1px solid #F3F4F6;">{req.password}</td></tr>
+        <tr><td style="padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;">Code</td><td style="padding:10px 14px;border-top:1px solid #F3F4F6;">{req.emp_code}</td></tr>
+      </table>
+      <p style="margin:18px 0 8px 0;">
+        <a href="{login_url()}" style="display:inline-block;background:#0A0A0A;color:#FFFFFF;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Sign in to Payroll</a>
+      </p>
+      <p style="margin:8px 0 0 0;font-size:12px;color:#9CA3AF;">Please change your password after first login.</p>
+    """
+    asyncio.create_task(send_email(email, f"Welcome to {company} — your Payroll login", render_email("WELCOME", body)))
     return {"id": emp_id, "user_id": user_id}
 
 @api.get("/employees")
@@ -715,6 +793,32 @@ async def apply_leave(req: ApplyLeaveRequest, user: dict = Depends(require_role(
         {"_id": bal["_id"]},
         {"$inc": {"pending": days}}
     )
+    # Notify employer admin (and any principal-elevated employees)
+    try:
+        emp = await db.employees.find_one({"_id": user["employee_id"]}, {"name": 1, "emp_code": 1})
+        tenant_doc = await db.tenants.find_one({"_id": user["tenant_id"]}, {"name": 1})
+        recipients: list[str] = []
+        async for u in db.users.find(
+            {"tenant_id": user["tenant_id"], "$or": [{"role": "employer"}, {"elevated_roles": "principal"}]},
+            {"email": 1},
+        ):
+            if u.get("email"):
+                recipients.append(u["email"])
+        if recipients and emp:
+            body = f"""
+              <h2 style="margin:0 0 12px 0;font-size:18px;">New leave request</h2>
+              <p style="margin:0 0 12px 0;color:#4B5563;line-height:1.55;"><b>{emp['name']}</b> ({emp['emp_code']}) has requested leave.</p>
+              <table cellpadding="0" cellspacing="0" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;width:100%;font-size:14px;">
+                <tr><td style="padding:10px 14px;color:#737373;">Type</td><td style="padding:10px 14px;font-weight:600;">{req.leave_type}</td></tr>
+                <tr><td style="padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;">Period</td><td style="padding:10px 14px;border-top:1px solid #F3F4F6;">{req.from_date} → {req.to_date} ({days} day{'s' if days != 1 else ''})</td></tr>
+                <tr><td style="padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;">Reason</td><td style="padding:10px 14px;border-top:1px solid #F3F4F6;">{(req.reason or '—')}</td></tr>
+              </table>
+              <p style="margin:18px 0 0 0;"><a href="{login_url()}" style="display:inline-block;background:#2563EB;color:#FFFFFF;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Review request</a></p>
+            """
+            for r in recipients:
+                asyncio.create_task(send_email(r, f"Leave request — {emp['name']}", render_email("LEAVE REQUEST", body)))
+    except Exception as e:
+        logger.error(f"leave-apply-mail: {e}")
     return {"id": app_id}
 
 @api.get("/leave/applications")
@@ -763,6 +867,24 @@ async def decide_leave(app_id: str, req: LeaveDecision, user: dict = Depends(get
         {"$set": {"status": req.decision, "decided_by": user["_id"], "decided_at": now_utc(), "decision_note": req.note}}
     )
     await audit(user["tenant_id"], user["_id"], f"leave.{req.decision}", app_id)
+    # Notify employee
+    try:
+        emp = await db.employees.find_one({"_id": app["employee_id"]}, {"name": 1, "email": 1})
+        if emp and emp.get("email"):
+            tone_color = "#16A34A" if req.decision == "approved" else "#DC2626"
+            tone_label = "Approved" if req.decision == "approved" else "Rejected"
+            body = f"""
+              <h2 style="margin:0 0 12px 0;font-size:18px;">Your leave request was <span style="color:{tone_color};">{tone_label.lower()}</span></h2>
+              <table cellpadding="0" cellspacing="0" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;width:100%;font-size:14px;">
+                <tr><td style="padding:10px 14px;color:#737373;">Type</td><td style="padding:10px 14px;font-weight:600;">{app['leave_type']}</td></tr>
+                <tr><td style="padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;">Period</td><td style="padding:10px 14px;border-top:1px solid #F3F4F6;">{app['from_date']} → {app['to_date']} ({app['days']} day{'s' if app['days'] != 1 else ''})</td></tr>
+                <tr><td style="padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;">Status</td><td style="padding:10px 14px;border-top:1px solid #F3F4F6;color:{tone_color};font-weight:700;">{tone_label}</td></tr>
+                {"<tr><td style='padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;'>Note</td><td style='padding:10px 14px;border-top:1px solid #F3F4F6;'>" + (req.note or '—') + "</td></tr>" if req.note else ""}
+              </table>
+            """
+            asyncio.create_task(send_email(emp["email"], f"Leave {tone_label.lower()} — {app['leave_type']}", render_email(f"LEAVE {tone_label.upper()}", body)))
+    except Exception as e:
+        logger.error(f"leave-decision-mail: {e}")
     return {"ok": True}
 
 # ============================================================
@@ -897,6 +1019,34 @@ async def approve_run(run_id: str, req: PayrollDecision, user: dict = Depends(re
         "approval_note": req.note,
     }})
     await audit(user["tenant_id"], user["_id"], f"payroll.{new_status}", run_id)
+    # On approval, email each employee their PDF salary slip
+    if new_status == "approved":
+        try:
+            tenant_doc = await db.tenants.find_one({"_id": user["tenant_id"]})
+            run_doc = await db.payroll_runs.find_one({"_id": run_id})
+            months = ["", "January","February","March","April","May","June","July","August","September","October","November","December"]
+            mname = months[run_doc["month"]]
+            async for it in db.payroll_items.find({"payroll_run_id": run_id}):
+                emp = await db.employees.find_one({"_id": it["employee_id"]})
+                if not emp or not emp.get("email"):
+                    continue
+                pdf = build_salary_slip_pdf(tenant_doc, emp, it, run_doc)
+                attachment = {
+                    "filename": f"salary-slip-{emp['emp_code']}-{run_doc['year']}-{run_doc['month']:02d}.pdf",
+                    "content": list(pdf),
+                }
+                body = f"""
+                  <h2 style="margin:0 0 12px 0;font-size:18px;">Your salary slip — {mname} {run_doc['year']}</h2>
+                  <p style="margin:0 0 12px 0;color:#4B5563;line-height:1.55;">Hi {emp['name']}, your payroll for <b>{mname} {run_doc['year']}</b> has been approved. Slip is attached as PDF.</p>
+                  <table cellpadding="0" cellspacing="0" style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;width:100%;font-size:14px;">
+                    <tr><td style="padding:10px 14px;color:#737373;">Payable days</td><td style="padding:10px 14px;font-weight:600;">{it['payable_days']} / {run_doc['working_days']}</td></tr>
+                    <tr><td style="padding:10px 14px;color:#737373;border-top:1px solid #F3F4F6;">Net payable</td><td style="padding:10px 14px;border-top:1px solid #F3F4F6;font-weight:700;">₹ {indian_fmt(it['net_salary'])}</td></tr>
+                  </table>
+                  <p style="margin:18px 0 0 0;"><a href="{login_url()}" style="display:inline-block;background:#0A0A0A;color:#FFFFFF;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Open Payroll</a></p>
+                """
+                asyncio.create_task(send_email(emp["email"], f"Salary slip — {mname} {run_doc['year']}", render_email("SALARY SLIP", body), attachments=[attachment]))
+        except Exception as e:
+            logger.error(f"payroll-approve-mail: {e}")
     return {"ok": True, "status": new_status}
 
 @api.post("/payroll/items/{item_id}/disburse")

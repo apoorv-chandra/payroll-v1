@@ -4,6 +4,7 @@ import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
 import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote } from "lucide-react";
+import GeofenceMap from "../components/GeofenceMap";
 
 const NAV = [
   { id: "dashboard", to: "/employer", end: true, label: "Overview", icon: LayoutDashboard },
@@ -479,13 +480,6 @@ function SettingsPage() {
     try { await api.put("/tenant/settings", payload); load(); } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
   };
 
-  const useMyLocation = () => {
-    if (!navigator.geolocation) return alert("Geolocation not supported");
-    navigator.geolocation.getCurrentPosition((p) => {
-      save({ attendance: { ...att, geo_fence: { enabled: true, center_lat: p.coords.latitude, center_lng: p.coords.longitude, radius_m: att.geo_fence?.radius_m || 100 } } });
-    });
-  };
-
   return (
     <div>
       <PageHeader title="Settings" subtitle={t.name} />
@@ -509,20 +503,20 @@ function SettingsPage() {
 
         <Card>
           <h3 className="font-semibold text-ink mb-1">Geo-fence</h3>
-          <p className="text-sm text-gray-500 mb-3">Restrict attendance marking to a geographic perimeter.</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={!!att.geo_fence?.enabled} onChange={(e) => save({ attendance: { ...att, geo_fence: { ...(att.geo_fence || {}), enabled: e.target.checked, radius_m: att.geo_fence?.radius_m || 100 } } })} data-testid="fence-toggle" />
-              <span className="text-sm font-medium">Enable geo-fence</span>
-            </label>
-            <Button variant="secondary" onClick={useMyLocation} data-testid="use-my-location"><MapPin className="h-4 w-4" />Use my location as center</Button>
-          </div>
+          <p className="text-sm text-gray-500 mb-3">Restrict attendance marking to a geographic perimeter. Drag the marker, tap the map to move it, or use the slider for radius.</p>
+          <label className="inline-flex items-center gap-2 mb-3">
+            <input type="checkbox" checked={!!att.geo_fence?.enabled} onChange={(e) => save({ attendance: { ...att, geo_fence: { ...(att.geo_fence || {}), enabled: e.target.checked, radius_m: att.geo_fence?.radius_m || 100 } } })} data-testid="fence-toggle" />
+            <span className="text-sm font-medium">Enable geo-fence</span>
+          </label>
           {att.geo_fence?.enabled && (
-            <div className="grid sm:grid-cols-3 gap-3 mt-3">
-              <Input label="Center latitude" defaultValue={att.geo_fence.center_lat ?? ""} onBlur={(e) => save({ attendance: { ...att, geo_fence: { ...att.geo_fence, center_lat: Number(e.target.value) } } })} />
-              <Input label="Center longitude" defaultValue={att.geo_fence.center_lng ?? ""} onBlur={(e) => save({ attendance: { ...att, geo_fence: { ...att.geo_fence, center_lng: Number(e.target.value) } } })} />
-              <Input label="Radius (m)" type="number" defaultValue={att.geo_fence.radius_m ?? 100} onBlur={(e) => save({ attendance: { ...att, geo_fence: { ...att.geo_fence, radius_m: Number(e.target.value) } } })} />
-            </div>
+            <GeofenceMap
+              value={{
+                center_lat: att.geo_fence?.center_lat,
+                center_lng: att.geo_fence?.center_lng,
+                radius_m: att.geo_fence?.radius_m || 100,
+              }}
+              onChange={(next) => save({ attendance: { ...att, geo_fence: { ...att.geo_fence, ...next } } })}
+            />
           )}
         </Card>
 

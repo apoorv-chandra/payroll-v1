@@ -42,19 +42,22 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - Payroll: `/api/payroll/generate` (26-day formula), `/runs`, `/runs/{id}`, `/runs/{id}/approve`, `/items/{id}/disburse` (cash/online MOCKED), `/items/{id}/slip` (PDF), `/my`
 - Cross-tenant isolation verified by tests
 - Audit log for all writes
+- **Email (Resend) — wired LIVE on 4 events**: welcome+credentials on employee onboarding, leave-applied → notify employer/principal, leave decision → notify employee, payroll approved → email each employee with PDF salary slip attachment. Sender `info@noratech.in`. Failures are logged + non-blocking.
 
 **Frontend**
 - Login screen with serif heading, demo creds visible
 - Super Admin dashboard: stats tiles + employers list + add modal + audit log
-- Employer dashboard: overview, employees CRUD, leave inbox with approve/reject, payroll runs (generate/approve/disburse/PDF), settings (attendance config, geo-fence, leave types editor)
-- Employee dashboard: today's status + check-in/out with camera+GPS, leave balances, history, apply leave, leave history, salary slip downloads
+- Employer dashboard: overview, employees CRUD, leave inbox with approve/reject, payroll runs (generate/approve/disburse/PDF), settings (attendance config, **MapLibre + OSM visual geo-fence editor with draggable marker, click-to-set-center, slider radius**, leave types editor)
+- Employee dashboard: today's status + check-in/out with **face-api.js liveness (blink challenge)** + GPS, leave balances, history, apply leave, leave history, salary slip downloads
 - PWA: manifest, service worker, viewport-fit cover, safe-area padding
 - Indian comma formatting (en-IN) throughout
 
 ## Mocked / Deferred
 - **MOCKED**: Online payouts (RazorpayX) — returns `MOCK-XXXXXXXX` txn id
-- **MOCKED**: Email notifications (no SMTP wired)
 - **Deferred**: Voice verification (TFLite), offline attendance queue sync, Hindi i18n, raw map UI for geofence (we expose lat/lng/radius inputs + "use my location" button), DPDP consent screens
+
+## ⚠️ Action required by user
+- **Verify `noratech.in` on Resend** at https://resend.com/domains so emails go through. Until verified, Resend rejects with `domain not verified` (the integration is correct; this is a Resend account setup step).
 
 ## Backlog (P1 → P2)
 - P1: Real RazorpayX integration (needs `RAZORPAYX_KEY_ID` + `RAZORPAYX_KEY_SECRET` from user)

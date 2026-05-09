@@ -4,6 +4,7 @@ import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
 import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollText, Download, Plus, Home, History } from "lucide-react";
+import FaceLiveness from "../components/FaceLiveness";
 
 const NAV = [
   { id: "home", to: "/me", end: true, label: "Home", icon: Home },
@@ -103,107 +104,88 @@ function HomeScreen() {
 }
 
 function AttendanceModal({ mode, onClose, onMarked }) {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [stream, setStream] = useState(null);
   const [coords, setCoords] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [snap, setSnap] = useState(null);
-  const [useFacial, setUseFacial] = useState(true);
+  const [snap, setSnap] = useState(null); // dataUrl from liveness
+  const [livenessPhase, setLivenessPhase] = useState("loading");
+  const [skipFacial, setSkipFacial] = useState(false); // fallback if camera/model fails
 
+  // Acquire location once on mount
   useEffect(() => {
-    let s;
-    (async () => {
-      if (useFacial) {
-        try {
-          s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-          setStream(s);
-          if (videoRef.current) videoRef.current.srcObject = s;
-        } catch (e) {
-          setUseFacial(false); // fallback to tap
-        }
-      }
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (p) => setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
-          (e) => setCoords({ error: e.message }),
-          { enableHighAccuracy: true, timeout: 10000 }
-        );
-      }
-    })();
-    return () => { if (s) s.getTracks().forEach((t) => t.stop()); };
-    // eslint-disable-next-line
-  }, [useFacial]);
-
-  const capture = () => {
-    if (!videoRef.current || !canvasRef.current) return null;
-    const v = videoRef.current; const c = canvasRef.current;
-    c.width = 320; c.height = 320;
-    const ctx = c.getContext("2d");
-    const ratio = Math.max(c.width / v.videoWidth, c.height / v.videoHeight);
-    const sw = c.width / ratio; const sh = c.height / ratio;
-    const sx = (v.videoWidth - sw) / 2; const sy = (v.videoHeight - sh) / 2;
-    ctx.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
-    const dataUrl = c.toDataURL("image/jpeg", 0.7);
-    setSnap(dataUrl);
-    return dataUrl;
-  };
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (p) => setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
+        (e) => setCoords({ error: e.message }),
+        { enableHighAccuracy: true, timeout: 10000 },
+      );
+    }
+  }, []);
 
   const submit = async () => {
     setBusy(true); setErr("");
     try {
-      let img = snap;
-      if (useFacial && !img) img = capture();
       await api.post("/attendance/mark", {
-        method: useFacial ? "facial" : "normal",
+        method: skipFacial ? "normal" : "facial",
         type: mode,
         latitude: coords?.latitude,
         longitude: coords?.longitude,
         accuracy: coords?.accuracy,
-        facial_image: img,
+        facial_image: skipFacial ? null : snap,
       });
       onMarked();
     } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
   };
 
+  const verified = !!snap || skipFacial;
+
   return (
-    <Modal open={true} onClose={onClose} title={mode === "check_in" ? "Check in" : "Check out"}
+    <Modal
+      open={true}
+      onClose={onClose}
+      title={mode === "check_in" ? "Check in" : "Check out"}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={busy} data-testid="confirm-attendance">{busy ? "Marking…" : (mode === "check_in" ? "Mark Check-in" : "Mark Check-out")}</Button>
+          <Button onClick={submit} disabled={busy || !verified} data-testid="confirm-attendance">
+            {busy ? "Marking…" : (mode === "check_in" ? "Mark Check-in" : "Mark Check-out")}
+          </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <div className="aspect-square w-full max-w-xs mx-auto bg-gray-100 rounded-xl overflow-hidden border border-gray-200 relative">
-          {useFacial ? (
-            <>
-              {snap ? (
-                <img src={snap} alt="captured" className="w-full h-full object-cover" />
-              ) : (
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              )}
-              <button type="button" onClick={() => snap ? setSnap(null) : capture()} className="absolute bottom-2 right-2 h-10 w-10 rounded-full bg-white/90 border border-gray-200 inline-flex items-center justify-center" data-testid="capture-btn" title={snap ? "Retake" : "Capture"}>
-                <Camera className="h-4 w-4" />
-              </button>
-            </>
-          ) : (
-            <div className="h-full w-full flex flex-col items-center justify-center text-gray-500">
-              <Camera className="h-10 w-10 mb-2" />
-              <div className="text-sm">Camera unavailable — tap-only mode</div>
-            </div>
-          )}
-          <canvas ref={canvasRef} className="hidden" />
-        </div>
+        {!skipFacial ? (
+          <>
+            <FaceLiveness
+              active={!snap}
+              onPass={({ dataUrl }) => setSnap(dataUrl)}
+              onError={() => setSkipFacial(true)}
+              onStatus={setLivenessPhase}
+            />
+            {snap && (
+              <div className="flex items-center justify-between bg-green-50 border border-green-100 text-green-800 rounded-md px-3 py-2 text-sm">
+                <span>Liveness verified — ready to mark.</span>
+                <button type="button" className="underline" onClick={() => setSnap(null)} data-testid="redo-liveness">Redo</button>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="aspect-square w-full max-w-xs mx-auto bg-gray-100 rounded-xl border border-gray-200 flex flex-col items-center justify-center text-gray-500">
+            <Camera className="h-10 w-10 mb-2" />
+            <div className="text-sm">Camera unavailable — tap-only mode</div>
+            <button className="mt-2 text-xs underline text-blue-600" onClick={() => setSkipFacial(false)}>Try camera again</button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 text-sm">
           <MapPin className="h-4 w-4 text-gray-500" />
           {coords?.error ? (
             <span className="text-amber-600">Location error: {coords.error}</span>
           ) : coords ? (
-            <span className="text-gray-700">{coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)} <span className="text-gray-400">(±{Math.round(coords.accuracy)}m)</span></span>
+            <span className="text-gray-700 tabular">
+              {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}{" "}
+              <span className="text-gray-400">(±{Math.round(coords.accuracy)}m)</span>
+            </span>
           ) : (
             <span className="text-gray-500">Acquiring location…</span>
           )}
