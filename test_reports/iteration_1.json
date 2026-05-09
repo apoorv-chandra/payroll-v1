@@ -1,0 +1,38 @@
+{
+  "summary": "Comprehensive backend tests for Payroll & Attendance multi-tenant PWA. Covered auth, super-admin tenant CRUD, employer settings, employee CRUD with cross-tenant isolation, attendance (check-in/out + geo-fence), leave (balances/apply/decision), payroll (generate/approve/disburse mocked), salary slip PDF (with role/cross-tenant access checks), and 26-day calc + Indian formatting. 33/33 tests passed after fixing a backend ObjectId leak in /api/leave/balances.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/leave/balances", "issue": "Returned 500 due to ObjectId in response (Mongo upsert auto-generated ObjectId for _id since reset_leave_balances did not seed _id). Fixed by adding $setOnInsert: {_id: gen_id(), pending: 0} and stringifying _id in the response."},
+      {"endpoint": "CORS", "issue": "allow_origins=['*'] with allow_credentials=False; httpOnly cookie-based auth from a different origin will not be sent. Bearer token works fine, but cookie-only flows from frontend will require credentials + explicit origin. Not blocking since frontend uses Bearer token via REACT_APP_BACKEND_URL same-origin via ingress."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Review the ObjectId fix in reset_leave_balances and /api/leave/balances (already applied by tester).",
+    "Consider tightening CORS: explicit origins + allow_credentials=True if frontend needs cookie auth cross-origin.",
+    "Email notifications and online RazorpayX disbursement remain MOCKED as expected per spec."
+  ],
+  "critical_code_review_comments": [
+    "reset_leave_balances used update_one(upsert=True) without seeding _id — Mongo created ObjectId; any endpoint returning that doc would 500. Pattern: always include $setOnInsert: {_id: gen_id()} for upserts.",
+    "leave_balances doc had no 'pending' field on insert; apply_leave/$inc 'pending' relies on Mongo creating it implicitly. OK functionally, but explicit init is safer (added in fix).",
+    "/api/payroll/generate is annotated as get_current_user but only allows employer or accountant elevated role — fine, but should use role-aware dependency for clarity.",
+    "Attendance does not enforce check_in before facial verification when method='facial'/'facial_voice' — image is hashed but never verified server-side. Acceptable if browser-side face-api.js is trusted.",
+    "indian_fmt is implemented and exercised via PDF; consider also exposing JSON-formatted amounts for UI."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (fix ObjectId in leave balances upsert + response)",
+    "/app/backend/tests/backend_test.py (new pytest suite)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "skipped"},
+  "test_credentials": "Super admin: admin@payroll.app / admin123 (auto-seeded). Tests create their own random tenants/employees using @testmail.com domain.",
+  "seed_data_creation": "Each test run creates fresh tenants/employees with TEST_ prefix and random uuid suffix; existing super admin is reused.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend fully covered with /app/backend/tests/backend_test.py (33 tests). Note: tests are stateful and order-sensitive (use module-level state dict). Use @testmail.com (not .local) for EmailStr fields — pydantic email-validator rejects reserved TLDs. Cross-tenant isolation, employee-own-slip-only, mocked disbursement (MOCK-XXXX txn_id), and 26-day calc all verified.",
+  "rca of the issue": "RCA: db.leave_balances.update_one(filter, {$set:...}, upsert=True) inserts a new doc with Mongo's default ObjectId for _id when no _id is supplied. The /api/leave/balances handler then returned the dict with ObjectId in an 'id' field, which FastAPI's jsonable_encoder cannot serialize -> 500. Mitigation: pass {_id: gen_id()} via $setOnInsert and stringify _id defensively in response."
+}

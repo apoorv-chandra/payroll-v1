@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+
+html, body, #root {
+  height: 100%;
+  background: #FFFFFF;
+  color: #0A0A0A;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 16px;
+  margin: 0;
+  overscroll-behavior-y: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Forms — kill iOS zoom */
+input, select, textarea {
+  font-size: 16px;
+}
+
+button { font-family: inherit; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #E5E7EB; border-radius: 3px; }
+
+/* Utilities */
+.safe-top { padding-top: max(env(safe-area-inset-top), 12px); }
+.safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 12px); }
+.pb-bottom-nav { padding-bottom: calc(64px + max(env(safe-area-inset-bottom), 8px)); }
+
+.fade-in { animation: fade 150ms ease-in both; }
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Card */
+.card { background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; }
+
+/* Tap targets */
+button, a.btn, [role="button"] { min-height: 44px; }
+
+/* Selection */
+::selection { background: #2563EB; color: #fff; }
+
+/* Hide focus ring for mouse, keep for keyboard */
+:focus:not(:focus-visible) { outline: none; }
+:focus-visible { outline: 2px solid #2563EB; outline-offset: 2px; border-radius: 6px; }
+
+/* Number tabular */
+.tabular { font-variant-numeric: tabular-nums; }

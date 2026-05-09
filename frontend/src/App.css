@@ -1,0 +1,19 @@
+/* App-specific styles */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, #F3F4F6 1px, transparent 1px),
+    linear-gradient(to bottom, #F3F4F6 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #F3F4F6 0%, #E5E7EB 50%, #F3F4F6 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.divider { height: 1px; background: #E5E7EB; }
