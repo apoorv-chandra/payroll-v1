@@ -3,8 +3,9 @@ import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote } from "lucide-react";
+import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send } from "lucide-react";
 import GeofenceMap from "../components/GeofenceMap";
+import useConfirm from "../lib/useConfirm";
 
 const NAV = [
   { id: "dashboard", to: "/employer", end: true, label: "Overview", icon: LayoutDashboard },
@@ -23,10 +24,66 @@ export default function EmployerApp() {
         <Route path="leaves" element={<Leaves />} />
         <Route path="payroll" element={<Payroll />} />
         <Route path="payroll/:runId" element={<PayrollRun />} />
+        <Route path="payroll/:runId/summary" element={<PayrollSummary />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/employer" replace />} />
       </Routes>
     </Shell>
+  );
+}
+
+function PayrollSummary() {
+  const navigate = useNavigate();
+  const runId = window.location.pathname.split("/").slice(-2, -1)[0];
+  const [data, setData] = useState(null);
+  const [view, setView] = useState("list"); // list | cards
+  useEffect(() => {
+    api.get(`/payroll/runs/${runId}/summary`).then((r) => setData(r.data)).catch(() => setData({ items: [] }));
+  }, [runId]);
+  if (!data) return <Spinner />;
+  return (
+    <div>
+      <PageHeader
+        title={`Salary summary — ${monthName(data.run?.month)} ${data.run?.year}`}
+        subtitle={`${data.count} employees • Total ₹${fmtINR(data.total)} • ${data.run?.status?.replace("_"," ")}`}
+        action={
+          <div className="inline-flex bg-gray-100 rounded-md p-1">
+            <button onClick={() => setView("list")} className={`h-9 px-3 rounded-md text-sm font-medium ${view === "list" ? "bg-white shadow-sm text-ink" : "text-gray-600"}`} data-testid="summary-list">List</button>
+            <button onClick={() => setView("cards")} className={`h-9 px-3 rounded-md text-sm font-medium ${view === "cards" ? "bg-white shadow-sm text-ink" : "text-gray-600"}`} data-testid="summary-cards">Cards</button>
+          </div>
+        }
+      />
+      {view === "list" ? (
+        <Card className="!p-0 overflow-hidden">
+          <ul className="divide-y divide-gray-100">
+            {data.items.map((i) => (
+              <li key={i.id} className="px-4 py-3 flex items-center justify-between text-sm">
+                <div>
+                  <div className="font-medium text-ink">{i.employee_name}</div>
+                  <div className="text-xs text-gray-500">{i.emp_code}{i.designation ? ` • ${i.designation}` : ""}</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-semibold text-ink tabular">₹{fmtINR(i.net_salary)}</div>
+                  {i.disbursed && <div className="text-[11px] text-green-700">Disbursed</div>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {data.items.map((i) => (
+            <Card key={i.id} className="!p-4">
+              <div className="text-xs text-gray-500 truncate">{i.emp_code}</div>
+              <div className="font-medium text-ink truncate" title={i.employee_name}>{i.employee_name}</div>
+              <div className="text-2xl font-semibold text-ink tabular mt-2">₹{fmtINR(i.net_salary)}</div>
+              {i.disbursed && <Badge tone="green">Disbursed</Badge>}
+            </Card>
+          ))}
+        </div>
+      )}
+      <Button variant="ghost" className="mt-4" onClick={() => navigate(`/employer/payroll/${runId}`)}>← Back</Button>
+    </div>
   );
 }
 
@@ -104,6 +161,7 @@ function Employees() {
   const [form, setForm] = useState(emptyEmpForm());
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const { confirm, ConfirmHost } = useConfirm();
 
   const load = async () => {
     setList(null);
@@ -123,9 +181,17 @@ function Employees() {
       setOpen(false); setEditing(null); setForm(emptyEmpForm()); load();
     } catch (e2) { setErr(fmtErr(e2)); } finally { setBusy(false); }
   };
-  const del = async (id) => {
-    if (!window.confirm("Remove this employee?")) return;
-    await api.delete(`/employees/${id}`); load();
+  const del = async (e) => {
+    const ok = await confirm({
+      kind: "type",
+      title: `Remove ${e.name}?`,
+      body: "This deletes the employee, their attendance, leaves and balances permanently.",
+      typeText: e.name,
+      danger: true,
+      confirmText: "Permanently remove",
+    });
+    if (!ok) return;
+    await api.delete(`/employees/${e.id}`); load();
   };
   const startEdit = (e) => {
     setEditing(e);
@@ -135,6 +201,7 @@ function Employees() {
 
   return (
     <div>
+      {ConfirmHost}
       <PageHeader
         title="Employees"
         subtitle="Add, edit, or remove people in your workspace."
@@ -172,7 +239,7 @@ function Employees() {
                     </td>
                     <td className="py-3 px-4 text-right">
                       <button onClick={() => startEdit(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700" data-testid={`edit-${e.id}`}><Pencil className="h-4 w-4" /></button>
-                      <button onClick={() => del(e.id)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-red-600" data-testid={`del-${e.id}`}><Trash2 className="h-4 w-4" /></button>
+                      <button onClick={() => del(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-red-600" data-testid={`del-${e.id}`}><Trash2 className="h-4 w-4" /></button>
                     </td>
                   </tr>
                 ))}
@@ -362,6 +429,7 @@ function PayrollRun() {
   const runId = window.location.pathname.split("/").pop();
   const [run, setRun] = useState(null);
   const [items, setItems] = useState([]);
+  const { confirm, ConfirmHost } = useConfirm();
 
   const load = async () => {
     const { data } = await api.get(`/payroll/runs/${runId}`);
@@ -370,7 +438,44 @@ function PayrollRun() {
   useEffect(() => { load(); }, [runId]);
 
   const approve = async (decision) => {
-    await api.post(`/payroll/runs/${runId}/approve`, { decision });
+    const ok = await confirm({
+      kind: "password",
+      title: decision === "approved" ? "Approve payroll run?" : "Reject payroll run?",
+      body: decision === "approved"
+        ? "Approving will lock attendance for the month and notify all employees on WhatsApp (if enabled). Re-enter your password to confirm."
+        : "Rejecting will keep the run in 'rejected' state. Accountant must re-generate to retry.",
+      danger: decision !== "approved",
+    });
+    if (!ok) return;
+    await api.post(`/payroll/runs/${runId}/approve`, {
+      decision,
+      decided_at_local: new Date().toLocaleString(),
+    });
+    load();
+  };
+  const submit = async () => {
+    await api.post(`/payroll/runs/${runId}/submit`, {});
+    load();
+  };
+  const removeRun = async () => {
+    const ok = await confirm({
+      kind: "type",
+      title: `Delete payroll run for ${monthName(run.month)} ${run.year}?`,
+      body: "This unlocks the month, lets employees edit attendance, and lets the accountant re-generate. The current run and all its items will be deleted.",
+      typeText: `${monthName(run.month)} ${run.year}`,
+      danger: true,
+      confirmText: "Delete payroll run",
+    });
+    if (!ok) return;
+    await api.delete(`/payroll/runs/${runId}`);
+    navigate("/employer/payroll");
+  };
+  const editDeduction = async (item) => {
+    const v = window.prompt(`Deduction for ${item.employee_name} (₹). Note can be set later.`, item.deductions || 0);
+    if (v === null) return;
+    const d = Number(v);
+    if (Number.isNaN(d) || d < 0) return;
+    await api.put(`/payroll/items/${item.id}/deductions`, { deductions: d });
     load();
   };
   const disburse = async (item, method) => {
@@ -387,16 +492,21 @@ function PayrollRun() {
   const total = items.reduce((s, i) => s + (i.net_salary || 0), 0);
   return (
     <div>
+      {ConfirmHost}
       <PageHeader
         title={`${monthName(run.month)} ${run.year}`}
         subtitle={`${items.length} employees • ${run.working_days}-day basis • Total ₹${fmtINR(total)}`}
         action={
-          <div className="flex gap-2">
-            {run.status === "draft" && <>
-              <Button variant="secondary" onClick={() => approve("rejected")} data-testid="reject-run">Reject</Button>
+          <div className="flex flex-wrap gap-2">
+            {run.status === "draft" && <Button variant="secondary" onClick={submit} data-testid="submit-run"><Send className="h-4 w-4" />Submit for approval</Button>}
+            {(run.status === "draft" || run.status === "pending_approval") && <>
+              <Button variant="danger" onClick={() => approve("rejected")} data-testid="reject-run">Reject</Button>
               <Button onClick={() => approve("approved")} data-testid="approve-run"><Check className="h-4 w-4" />Approve</Button>
             </>}
-            <Badge tone={statusTone(run.status)}>{run.status}</Badge>
+            {(run.status === "approved" || run.status === "disbursed" || run.status === "rejected") && (
+              <Button variant="danger" onClick={removeRun} data-testid="delete-run"><Trash2 className="h-4 w-4" />Delete run</Button>
+            )}
+            <Badge tone={statusTone(run.status)}>{run.status.replace("_", " ")}</Badge>
           </div>
         }
       />
@@ -410,6 +520,8 @@ function PayrollRun() {
                 <th className="py-3 px-4">Present</th>
                 <th className="py-3 px-4">Leaves</th>
                 <th className="py-3 px-4">Payable</th>
+                <th className="py-3 px-4">Gross</th>
+                <th className="py-3 px-4">Deduct</th>
                 <th className="py-3 px-4">Net</th>
                 <th className="py-3 px-4">Disburse</th>
                 <th className="py-3 px-4"></th>
@@ -423,6 +535,14 @@ function PayrollRun() {
                   <td className="py-3 px-4 tabular">{i.present_days}</td>
                   <td className="py-3 px-4 tabular">{i.paid_leave_days}</td>
                   <td className="py-3 px-4 tabular">{i.payable_days}</td>
+                  <td className="py-3 px-4 tabular">₹{fmtINR(i.gross_salary)}</td>
+                  <td className="py-3 px-4 tabular">
+                    {run.status === "draft" ? (
+                      <button className="text-blue-600 underline text-xs" onClick={() => editDeduction(i)} data-testid={`edit-deduct-${i.id}`}>₹{fmtINR(i.deductions || 0)}</button>
+                    ) : (
+                      <>₹{fmtINR(i.deductions || 0)}</>
+                    )}
+                  </td>
                   <td className="py-3 px-4 tabular font-semibold">₹{fmtINR(i.net_salary)}</td>
                   <td className="py-3 px-4">
                     {i.disbursement ? (
@@ -450,13 +570,19 @@ function PayrollRun() {
         </div>
       </Card>
       <div className="mt-4 text-xs text-gray-500">* Online disbursement is currently <b>MOCKED</b>. Plug in RazorpayX keys later for real payouts.</div>
-      <Button variant="ghost" className="mt-4" onClick={() => navigate("/employer/payroll")}>← Back to runs</Button>
+      <div className="mt-4 flex gap-2">
+        <Button variant="ghost" onClick={() => navigate("/employer/payroll")}>← Back to runs</Button>
+        {(run.status === "approved" || run.status === "disbursed") && (
+          <Button variant="secondary" onClick={() => navigate(`/employer/payroll/${runId}/summary`)} data-testid="open-summary">View summary →</Button>
+        )}
+      </div>
     </div>
   );
 }
 
 function statusTone(s) {
   if (s === "draft") return "yellow";
+  if (s === "pending_approval") return "blue";
   if (s === "approved") return "blue";
   if (s === "disbursed") return "green";
   if (s === "rejected") return "red";

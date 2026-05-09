@@ -31,13 +31,16 @@ function HomeScreen() {
   const [today, setToday] = useState(null);
   const [balances, setBalances] = useState([]);
   const [open, setOpen] = useState(false);
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [maxBack, setMaxBack] = useState(30);
 
   const load = async () => {
     try {
-      const [t, b] = await Promise.all([api.get("/attendance/today"), api.get("/leave/balances")]);
-      setToday(t.data); setBalances(b.data);
+      const [t, b, c] = await Promise.all([
+        api.get("/attendance/today"),
+        api.get("/leave/balances"),
+        api.get("/attendance/config"),
+      ]);
+      setToday(t.data); setBalances(b.data); setMaxBack(c.data?.max_backdate_days ?? 30);
     } catch { setToday({ marked: false }); }
   };
   useEffect(() => { load(); }, []);
@@ -68,12 +71,15 @@ function HomeScreen() {
           </Badge>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-2">
-          <Button onClick={() => setOpen("check_in")} disabled={hasIn} data-testid="check-in-btn">
+          <Button onClick={() => setOpen({ mode: "check_in", date: null })} disabled={hasIn} data-testid="check-in-btn">
             <LogIn className="h-4 w-4" />Check in
           </Button>
-          <Button variant="secondary" onClick={() => setOpen("check_out")} disabled={!hasIn || hasOut} data-testid="check-out-btn">
+          <Button variant="secondary" onClick={() => setOpen({ mode: "check_out", date: null })} disabled={!hasIn || hasOut} data-testid="check-out-btn">
             <LogOutIcon className="h-4 w-4" />Check out
           </Button>
+        </div>
+        <div className="mt-3 text-xs text-gray-500">
+          Missed a day? <button className="text-blue-600 underline" onClick={() => setOpen({ mode: "backdate", date: null })} data-testid="backdate-btn">Mark a past date</button> (up to {maxBack} days back).
         </div>
       </Card>
 
@@ -94,7 +100,8 @@ function HomeScreen() {
 
       {open && (
         <AttendanceModal
-          mode={open}
+          mode={open.mode}
+          maxBack={maxBack}
           onClose={() => setOpen(false)}
           onMarked={() => { setOpen(false); load(); }}
         />
@@ -103,15 +110,20 @@ function HomeScreen() {
   );
 }
 
-function AttendanceModal({ mode, onClose, onMarked }) {
+function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
   const [coords, setCoords] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const [snap, setSnap] = useState(null); // dataUrl from liveness
-  const [livenessPhase, setLivenessPhase] = useState("loading");
-  const [skipFacial, setSkipFacial] = useState(false); // fallback if camera/model fails
+  const [snap, setSnap] = useState(null);
+  const [skipFacial, setSkipFacial] = useState(false);
+  const [pickedDate, setPickedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [overwrite, setOverwrite] = useState(false);
+  const [actualMode, setActualMode] = useState(mode === "backdate" ? "check_in" : mode);
 
-  // Acquire location once on mount
+  const today = new Date();
+  const minDate = new Date(today.getTime() - maxBack * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const maxDate = today.toISOString().slice(0, 10);
+
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -127,40 +139,64 @@ function AttendanceModal({ mode, onClose, onMarked }) {
     try {
       await api.post("/attendance/mark", {
         method: skipFacial ? "normal" : "facial",
-        type: mode,
+        type: actualMode,
+        date: mode === "backdate" ? pickedDate : undefined,
         latitude: coords?.latitude,
         longitude: coords?.longitude,
         accuracy: coords?.accuracy,
         facial_image: skipFacial ? null : snap,
+        overwrite,
       });
       onMarked();
     } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
   };
 
   const verified = !!snap || skipFacial;
+  const titleMap = { check_in: "Check in", check_out: "Check out", backdate: "Mark past date" };
 
   return (
     <Modal
       open={true}
       onClose={onClose}
-      title={mode === "check_in" ? "Check in" : "Check out"}
+      title={titleMap[mode]}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={busy || !verified} data-testid="confirm-attendance">
-            {busy ? "Marking…" : (mode === "check_in" ? "Mark Check-in" : "Mark Check-out")}
+            {busy ? "Marking…" : `Mark ${actualMode === "check_in" ? "Check-in" : "Check-out"}`}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
+        {mode === "backdate" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Date"
+              type="date"
+              min={minDate}
+              max={maxDate}
+              value={pickedDate}
+              onChange={(e) => setPickedDate(e.target.value)}
+              data-testid="backdate-date"
+            />
+            <Select label="Type" value={actualMode} onChange={(e) => setActualMode(e.target.value)}>
+              <option value="check_in">Check in</option>
+              <option value="check_out">Check out</option>
+            </Select>
+            <label className="col-span-2 inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} data-testid="overwrite-toggle" />
+              Replace existing record for this date (only if payroll for that month is not yet approved)
+            </label>
+          </div>
+        )}
+
         {!skipFacial ? (
           <>
             <FaceLiveness
               active={!snap}
               onPass={({ dataUrl }) => setSnap(dataUrl)}
               onError={() => setSkipFacial(true)}
-              onStatus={setLivenessPhase}
             />
             {snap && (
               <div className="flex items-center justify-between bg-green-50 border border-green-100 text-green-800 rounded-md px-3 py-2 text-sm">

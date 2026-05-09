@@ -1,6 +1,7 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { I18nProvider } from "./contexts/I18nContext";
 import Login, { FullScreenLoader, homeFor } from "./pages/Login";
 import AdminApp from "./pages/AdminApp";
 import EmployerApp from "./pages/EmployerApp";
@@ -22,17 +23,19 @@ function HomeRedirect() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<HomeRedirect />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/admin/*" element={<Protected allow={["super_admin"]}><AdminApp /></Protected>} />
-          <Route path="/employer/*" element={<Protected allow={["employer"]}><EmployerApp /></Protected>} />
-          <Route path="/me/*" element={<Protected allow={["employee"]}><EmployeeApp /></Protected>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+    <I18nProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<HomeRedirect />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/admin/*" element={<Protected allow={["super_admin"]}><AdminApp /></Protected>} />
+            <Route path="/employer/*" element={<Protected allow={["employer"]}><EmployerApp /></Protected>} />
+            <Route path="/me/*" element={<Protected allow={["employee"]}><EmployeeApp /></Protected>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </I18nProvider>
   );
 }

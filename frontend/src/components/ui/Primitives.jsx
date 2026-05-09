@@ -1,6 +1,6 @@
 import React from "react";
 
-export function Button({ as: Tag = "button", variant = "primary", className = "", children, ...rest }) {
+export function Button({ as: Tag = "button", variant = "primary", type = "button", className = "", children, ...rest }) {
   const base = "inline-flex items-center justify-center gap-2 h-12 px-5 rounded-md font-medium transition-opacity duration-150 disabled:opacity-50";
   const variants = {
     primary: "bg-[#2563EB] text-white hover:bg-[#1D4ED8]",
@@ -9,18 +9,20 @@ export function Button({ as: Tag = "button", variant = "primary", className = ""
     danger: "bg-white text-red-600 border border-red-200 hover:bg-red-50",
     dark: "bg-ink text-white hover:bg-black",
   };
+  const props = Tag === "button" ? { type, ...rest } : rest;
   return (
-    <Tag className={`${base} ${variants[variant] || variants.primary} ${className}`} {...rest}>
+    <Tag className={`${base} ${variants[variant] || variants.primary} ${className}`} {...props}>
       {children}
     </Tag>
   );
 }
 
-export function Input({ label, hint, error, className = "", ...rest }) {
+export const Input = React.forwardRef(function Input({ label, hint, error, className = "", ...rest }, ref) {
   return (
     <label className="block w-full">
       {label && <span className="block text-sm font-medium text-gray-700 mb-1">{label}</span>}
       <input
+        ref={ref}
         className={`h-12 w-full border ${error ? "border-red-400" : "border-gray-300"} rounded-md px-4 outline-none bg-white focus:ring-2 focus:ring-[#2563EB] focus:border-transparent ${className}`}
         {...rest}
       />
@@ -28,7 +30,7 @@ export function Input({ label, hint, error, className = "", ...rest }) {
       {error && <span className="block text-xs text-red-600 mt-1">{error}</span>}
     </label>
   );
-}
+});
 
 export function Select({ label, children, error, className = "", ...rest }) {
   return (

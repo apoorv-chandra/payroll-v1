@@ -17,7 +17,12 @@ state = {}
 
 
 def _login(email, password):
-    r = requests.post(f"{API}/auth/login", json={"email": email, "password": password})
+    cap = requests.get(f"{API}/auth/captcha").json()
+    answer = (cap["a"] + cap["b"]) if cap["op"] == "+" else (cap["a"] - cap["b"])
+    r = requests.post(f"{API}/auth/login", json={
+        "email": email, "password": password,
+        "captcha_token": cap["token"], "captcha_answer": answer,
+    })
     return r
 
 

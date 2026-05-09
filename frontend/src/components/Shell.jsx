@@ -1,16 +1,20 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { LogOut } from "lucide-react";
+import { useI18n } from "../contexts/I18nContext";
+import { LogOut, Globe } from "lucide-react";
 
 export default function Shell({ children, nav }) {
   const { user, logout } = useAuth();
+  const { lang, setLang } = useI18n();
   const navigate = useNavigate();
 
   const onLogout = async () => {
     await logout();
     navigate("/login", { replace: true });
   };
+
+  const toggleLang = () => setLang(lang === "hi" ? "en" : "hi");
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -46,10 +50,16 @@ export default function Shell({ children, nav }) {
                 <div className="text-sm font-medium text-ink truncate max-w-[180px]">{user?.name}</div>
                 <div className="text-[11px] text-gray-500 truncate max-w-[180px]">{user?.email}</div>
               </div>
+              <button data-testid="lang-toggle" onClick={toggleLang} className="h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700" title="Language">
+                <Globe className="h-4 w-4" />
+              </button>
               <button data-testid="logout-button" onClick={onLogout} className="h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700">
                 <LogOut className="h-4 w-4" />
               </button>
             </div>
+            <button data-testid="lang-toggle-mobile" onClick={toggleLang} className="sm:hidden h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700">
+              <Globe className="h-4 w-4" />
+            </button>
             <button data-testid="logout-button-mobile" onClick={onLogout} className="sm:hidden h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700">
               <LogOut className="h-4 w-4" />
             </button>
