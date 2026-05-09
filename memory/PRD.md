@@ -50,6 +50,14 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Feb 9, 2026 — v4 / SaaS self-serve)
+**v4 additions**
+- **Employee self-serve onboarding** — public `/signup` page with employer dropdown, name/email/phone/password, captcha, DPDP consent. Creates a `pending` user (login blocked) under the chosen tenant.
+- **Employer approval workflow** — Employer's *Employees* tab now shows a "Pending signups" panel above the active list. Employer fills emp_code + monthly_salary in an approval modal; on approve, account is activated, leave balances are seeded, welcome email is sent. Reject deletes the request.
+- **Backend endpoints** — `GET /api/auth/employers` (public), `POST /api/auth/signup` (public), `GET /api/employees/pending`, `POST /api/employees/{id}/approve`, `POST /api/employees/{id}/reject` (employer-only).
+- **Privacy notice updated** — `COMPANY_LEGAL_NAME = "Noratech Private Limited"`, `DPO_EMAIL = info@noratech.in` (in `/app/frontend/src/lib/privacy.js`).
+- **Tests**: `/app/backend/tests/test_signup_flow.py` (16 stateful tests, 100% pass). Total backend: **49/49 green**.
+
 ## Implemented (May 9, 2026 — v3 / DPDP + offline + cron)
 **v3 additions**
 - **Offline attendance queue** — IndexedDB store (`payroll-offline.attendance-queue`); when network call fails, mark is enqueued; auto-drains on `online` event + every 5 s; UI shows offline / "queued — syncing" banner.
@@ -83,17 +91,17 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 
 ## Mocked / Deferred
 - **MOCKED**: Online payouts (RazorpayX) — returns `MOCK-XXXXXXXX` txn id
-- **Deferred**: Voice verification (TFLite), offline attendance queue sync, raw-image facial verification for compliance, DPDP consent screens, bulk CSV employee import
+- **Deferred**: Voice verification (TFLite), raw-image facial verification for compliance, bulk CSV employee import
 
 ## Backlog
 - P1: RazorpayX Payouts (needs `RAZORPAYX_KEY_ID` + `RAZORPAYX_KEY_SECRET`)
 - P1: Twilio production WhatsApp templates (currently sandbox-ready)
 - P1: Hindi rendering across deeper screens (Employee history, Payroll table)
+- P1: Robust offline attendance auto-flush on reconnect (queue exists; verify token handling on network restore)
 - P2: Bulk CSV employee import
-- P2: Offline attendance queue (IndexedDB) + service-worker background sync
-- P2: DPDP consent screens & data-export/erasure
 - P2: Voice verification (TFLite)
+- P2: Public employer list rate-limiting (currently exposes all tenant names by design for SaaS distribution)
 
 ## Test coverage
-- Backend: 33 tests, 100% pass — `/app/backend/tests/backend_test.py`
-- Frontend: smoke-tested via screenshots (login + captcha, super admin overview, platform settings, geo-fence map, employee home + leave balances)
+- Backend: **49/49 tests pass** — `/app/backend/tests/backend_test.py` + `/app/backend/tests/test_signup_flow.py`
+- Frontend: smoke-tested via testing agent (login + captcha, signup page + employer dropdown + approval modal, super admin overview, platform settings, geo-fence map, employee home + leave balances)

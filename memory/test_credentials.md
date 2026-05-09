@@ -28,6 +28,13 @@
 - `POST /api/auth/login` body: `{ email, password, captcha_token, captcha_answer }` → `{ access_token, user }`
 - `GET  /api/auth/me` (Bearer or cookie) → user object
 - `POST /api/auth/logout`
+- `GET  /api/auth/employers` (public) → `[{ id, name }]` — list of tenants accepting signups
+- `POST /api/auth/signup` (public) body: `{ tenant_id, name, email, password, phone?, consent, captcha_token, captcha_answer }` → creates a **pending** employee. Login is blocked (403) until employer approves.
+
+## Self-serve onboarding (employer side)
+- `GET  /api/employees/pending` (employer) → list of pending signup requests
+- `POST /api/employees/{id}/approve` (employer) body: `ApproveSignupRequest { emp_code, monthly_salary, designation?, ... }` → activates the account + sends welcome email
+- `POST /api/employees/{id}/reject` (employer) → permanently deletes the request
 
 ## Notes
 - **Email**: only the Welcome-on-employee-onboard email is wired (Resend via `RESEND_API_KEY`). Everything else moved to WhatsApp.
