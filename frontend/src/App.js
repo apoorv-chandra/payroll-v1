@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { I18nProvider } from "./contexts/I18nContext";
 import Login, { FullScreenLoader, homeFor } from "./pages/Login";
+import Signup from "./pages/Signup";
 import AdminApp from "./pages/AdminApp";
 import EmployerApp from "./pages/EmployerApp";
 import EmployeeApp from "./pages/EmployeeApp";
@@ -29,6 +30,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomeRedirect />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
             <Route path="/admin/*" element={<Protected allow={["super_admin"]}><AdminApp /></Protected>} />
             <Route path="/employer/*" element={<Protected allow={["employer"]}><EmployerApp /></Protected>} />
             <Route path="/me/*" element={<Protected allow={["employee"]}><EmployeeApp /></Protected>} />

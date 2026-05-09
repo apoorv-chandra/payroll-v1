@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, Navigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useI18n } from "../contexts/I18nContext";
 import { Button, Input, Spinner } from "../components/ui/Primitives";
@@ -124,6 +124,13 @@ export default function Login() {
             <Button type="submit" className="w-full" disabled={busy} data-testid="login-submit">
               {busy ? t("common.signing_in") : t("common.sign_in")}
             </Button>
+
+            <p className="text-center text-sm text-gray-500 pt-1">
+              New employee?{" "}
+              <Link to="/signup" className="text-blue-600 underline" data-testid="login-signup-link">
+                Sign up to join your employer
+              </Link>
+            </p>
           </form>
 
           <div className="mt-8 border-t border-gray-100 pt-5">

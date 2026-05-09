@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send } from "lucide-react";
+import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus } from "lucide-react";
 import GeofenceMap from "../components/GeofenceMap";
 import useConfirm from "../lib/useConfirm";
 
@@ -156,6 +156,7 @@ function Overview() {
 
 function Employees() {
   const [list, setList] = useState(null);
+  const [pending, setPending] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyEmpForm());
@@ -166,6 +167,7 @@ function Employees() {
   const load = async () => {
     setList(null);
     try { setList((await api.get("/employees")).data); } catch { setList([]); }
+    try { setPending((await api.get("/employees/pending")).data); } catch { setPending([]); }
   };
   useEffect(() => { load(); }, []);
 
@@ -207,6 +209,9 @@ function Employees() {
         subtitle="Add, edit, or remove people in your workspace."
         action={<Button onClick={() => { setEditing(null); setForm(emptyEmpForm()); setOpen(true); }} data-testid="add-employee-button"><Plus className="h-4 w-4" />Add employee</Button>}
       />
+
+      <PendingSignups items={pending} onChanged={load} />
+
       {list === null ? <Spinner /> : list.length === 0 ? (
         <Empty icon={Users} title="No employees yet" hint="Add your first employee — they'll get login credentials and can start marking attendance." action={<Button onClick={() => setOpen(true)} data-testid="add-employee-empty"><Plus className="h-4 w-4" />Add employee</Button>} />
       ) : (
@@ -297,6 +302,149 @@ function Employees() {
 
 function emptyEmpForm() {
   return { name: "", email: "", password: "", emp_code: "", designation: "", department: "", monthly_salary: "", joining_date: new Date().toISOString().slice(0, 10), bank_account: "", ifsc: "", elevated_roles: [], attendance_config_id: 1 };
+}
+
+function PendingSignups({ items, onChanged }) {
+  const { confirm, ConfirmHost } = useConfirm();
+  const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState(null);
+  const [form, setForm] = useState({});
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  if (!items || items.length === 0) return null;
+
+  const startApprove = (e) => {
+    setTarget(e);
+    setForm({
+      emp_code: "",
+      designation: "",
+      department: "",
+      monthly_salary: "",
+      joining_date: e.joining_date || new Date().toISOString().slice(0, 10),
+      bank_account: "",
+      ifsc: "",
+      elevated_roles: [],
+      attendance_config_id: 1,
+    });
+    setErr("");
+    setOpen(true);
+  };
+
+  const submitApprove = async (ev) => {
+    ev.preventDefault(); setBusy(true); setErr("");
+    try {
+      const payload = {
+        emp_code: form.emp_code?.trim() || null,
+        designation: form.designation || null,
+        department: form.department || null,
+        monthly_salary: form.monthly_salary === "" ? null : Number(form.monthly_salary),
+        joining_date: form.joining_date || null,
+        bank_account: form.bank_account || null,
+        ifsc: form.ifsc || null,
+        elevated_roles: form.elevated_roles || [],
+        attendance_config_id: Number(form.attendance_config_id) || 1,
+      };
+      await api.post(`/employees/${target.id}/approve`, payload);
+      setOpen(false); setTarget(null); onChanged && onChanged();
+    } catch (e2) { setErr(fmtErr(e2)); } finally { setBusy(false); }
+  };
+
+  const reject = async (e) => {
+    const ok = await confirm({
+      kind: "simple",
+      title: `Reject signup from ${e.name}?`,
+      body: `This will permanently delete ${e.email}'s account request. They can sign up again later.`,
+      danger: true,
+      confirmText: "Reject and delete",
+    });
+    if (!ok) return;
+    try { await api.post(`/employees/${e.id}/reject`); onChanged && onChanged(); }
+    catch (e2) { alert(fmtErr(e2)); }
+  };
+
+  return (
+    <div className="mb-5" data-testid="pending-signups-panel">
+      {ConfirmHost}
+      <Card className="!p-0 overflow-hidden border-amber-200">
+        <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
+          <UserPlus className="h-4 w-4 text-amber-700" />
+          <span className="text-sm font-semibold text-amber-900">
+            {items.length} pending signup{items.length === 1 ? "" : "s"} awaiting your approval
+          </span>
+        </div>
+        <ul className="divide-y divide-gray-100">
+          {items.map((e) => (
+            <li key={e.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4" data-testid={`pending-row-${e.id}`}>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-ink truncate">{e.name}</div>
+                <div className="text-xs text-gray-500 truncate">
+                  {e.email}{e.phone ? ` • ${e.phone}` : ""}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => reject(e)}
+                  className="h-9 px-3 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100"
+                  data-testid={`reject-signup-${e.id}`}
+                >
+                  <X className="h-3.5 w-3.5 inline-block -mt-px mr-1" />Reject
+                </button>
+                <button
+                  onClick={() => startApprove(e)}
+                  className="h-9 px-3 rounded-md text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100"
+                  data-testid={`approve-signup-${e.id}`}
+                >
+                  <Check className="h-3.5 w-3.5 inline-block -mt-px mr-1" />Approve
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      <Modal
+        open={open}
+        onClose={() => { setOpen(false); setTarget(null); }}
+        title={target ? `Approve ${target.name}` : "Approve signup"}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => { setOpen(false); setTarget(null); }}>Cancel</Button>
+            <Button onClick={submitApprove} disabled={busy} data-testid="approve-signup-submit">
+              {busy ? "Approving…" : "Approve & activate"}
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={submitApprove} className="space-y-3">
+          <p className="text-xs text-gray-500">
+            Set the employee code and salary now. The employee will receive an activation email with their login.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Employee code" required value={form.emp_code || ""} onChange={(e) => setForm({ ...form, emp_code: e.target.value })} placeholder="e.g. EMP001" data-testid="approve-emp-code" />
+            <Input label="Monthly salary (₹)" type="number" required value={form.monthly_salary || ""} onChange={(e) => setForm({ ...form, monthly_salary: e.target.value })} data-testid="approve-emp-salary" />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Designation" value={form.designation || ""} onChange={(e) => setForm({ ...form, designation: e.target.value })} />
+            <Input label="Department" value={form.department || ""} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Joining date" type="date" value={form.joining_date || ""} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} />
+            <Input label="Bank A/C" value={form.bank_account || ""} onChange={(e) => setForm({ ...form, bank_account: e.target.value })} />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="IFSC" value={form.ifsc || ""} onChange={(e) => setForm({ ...form, ifsc: e.target.value })} />
+            <Select label="Elevated roles" multiple value={form.elevated_roles || []} onChange={(e) => setForm({ ...form, elevated_roles: Array.from(e.target.selectedOptions).map((o) => o.value) })}>
+              <option value="accountant">Accountant</option>
+              <option value="principal">Principal</option>
+              <option value="cashier">Cashier</option>
+            </Select>
+          </div>
+          {err && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">{err}</div>}
+        </form>
+      </Modal>
+    </div>
+  );
 }
 
 function Leaves() {

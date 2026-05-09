@@ -12,6 +12,7 @@ from ..schemas import (
     CreateEmployeeRequest,
     UpdateEmployeeRequest,
     TenantSettingsUpdate,
+    ApproveSignupRequest,
 )
 from ..security import hash_password
 from ..services.audit import audit
@@ -168,8 +169,119 @@ async def list_employees(user: dict = Depends(require_employer_or_admin)):
         raise HTTPException(status_code=400, detail="Use tenant scope")
     out = []
     async for e in db.employees.find({"tenant_id": user["tenant_id"]}).sort("emp_code", 1):
+        # Hide pending self-signups from the main employee list — they live
+        # in their own "Pending signups" section to be approved or rejected.
+        if e.get("signup_status") == "pending":
+            continue
         out.append(strip_id(e))
     return out
+
+
+# ---------- Pending self-signups (Employer approval workflow) ----------
+@router.get("/employees/pending")
+async def list_pending_signups(user: dict = Depends(require_role("employer"))):
+    out = []
+    async for e in (
+        db.employees.find({"tenant_id": user["tenant_id"], "signup_status": "pending"})
+        .sort("created_at", -1)
+    ):
+        out.append(strip_id(e))
+    return out
+
+
+@router.post("/employees/{employee_id}/approve")
+async def approve_signup(
+    employee_id: str,
+    req: ApproveSignupRequest = ApproveSignupRequest(),
+    user: dict = Depends(require_role("employer")),
+):
+    """Approve a pending signup — fills in the employer-managed fields
+    (emp_code, salary, designation, etc.) and activates the account."""
+    e = await db.employees.find_one({
+        "_id": employee_id,
+        "tenant_id": user["tenant_id"],
+        "signup_status": "pending",
+    })
+    if not e:
+        raise HTTPException(status_code=404, detail="Pending signup not found")
+
+    # Validate emp_code uniqueness within tenant.
+    if req.emp_code:
+        clash = await db.employees.find_one({
+            "tenant_id": user["tenant_id"],
+            "emp_code": req.emp_code,
+            "_id": {"$ne": employee_id},
+        })
+        if clash:
+            raise HTTPException(status_code=400, detail="Employee code already exists")
+
+    upd = {
+        "active": True,
+        "signup_status": "approved",
+        "approved_at": now_utc(),
+        "approved_by": user["_id"],
+    }
+    for k in ("emp_code", "designation", "department", "bank_account", "ifsc",
+             "attendance_config_id", "joining_date"):
+        v = getattr(req, k, None)
+        if v is not None:
+            upd[k] = v
+    if req.monthly_salary is not None:
+        upd["monthly_salary"] = float(req.monthly_salary)
+    if req.elevated_roles is not None:
+        upd["elevated_roles"] = req.elevated_roles
+
+    await db.employees.update_one({"_id": employee_id}, {"$set": upd})
+    user_upd = {"disabled": False}
+    if req.elevated_roles is not None:
+        user_upd["elevated_roles"] = req.elevated_roles
+    await db.users.update_one({"_id": e["user_id"]}, {"$set": user_upd})
+
+    await reset_leave_balances(
+        user["tenant_id"],
+        employee_id,
+        upd.get("joining_date") or e.get("joining_date"),
+    )
+    await audit(user["tenant_id"], user["_id"], "employee.signup.approve", employee_id, upd)
+
+    # Welcome email — same template, but tells them the account is now active.
+    tenant_doc = await db.tenants.find_one({"_id": user["tenant_id"]})
+    company = (tenant_doc or {}).get("name", "Payroll")
+    body = render_welcome_body(
+        e.get("name") or "there",
+        company,
+        e.get("email"),
+        "(use the password you chose at signup)",
+        upd.get("emp_code") or e.get("emp_code"),
+    )
+    asyncio.create_task(send_email(
+        e.get("email"),
+        f"Welcome to {company} — your account is now active",
+        render_email("WELCOME", body),
+    ))
+    return {"ok": True, "id": employee_id}
+
+
+@router.post("/employees/{employee_id}/reject")
+async def reject_signup(
+    employee_id: str,
+    user: dict = Depends(require_role("employer")),
+):
+    """Reject a pending signup — purges the employee + user record entirely."""
+    e = await db.employees.find_one({
+        "_id": employee_id,
+        "tenant_id": user["tenant_id"],
+        "signup_status": "pending",
+    })
+    if not e:
+        raise HTTPException(status_code=404, detail="Pending signup not found")
+    await db.employees.delete_one({"_id": employee_id})
+    await db.users.delete_one({"_id": e["user_id"]})
+    await audit(
+        user["tenant_id"], user["_id"], "employee.signup.reject", employee_id,
+        {"email": e.get("email"), "name": e.get("name")},
+    )
+    return {"ok": True}
 
 
 @router.get("/employees/{employee_id}")

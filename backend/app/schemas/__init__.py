@@ -26,6 +26,23 @@ class TokenResponse(BaseModel):
     user: dict
 
 
+class SignupRequest(BaseModel):
+    """Public, employee self-serve onboarding (SaaS distribution)."""
+    tenant_id: str
+    name: str
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+    phone: Optional[str] = None
+    consent: bool = False
+    captcha_token: Optional[str] = None
+    captcha_answer: Optional[int] = None
+
+
+class EmployerPublic(BaseModel):
+    id: str
+    name: str
+
+
 # ---------- Tenants ----------
 class CreateEmployerRequest(BaseModel):
     name: str
@@ -64,6 +81,19 @@ class UpdateEmployeeRequest(BaseModel):
     attendance_config_id: Optional[int] = None
     active: Optional[bool] = None
     phone: Optional[str] = None
+
+
+class ApproveSignupRequest(BaseModel):
+    """All fields optional — employer fills only what they need to set."""
+    emp_code: Optional[str] = None
+    designation: Optional[str] = None
+    department: Optional[str] = None
+    monthly_salary: Optional[float] = Field(default=None, ge=0)
+    joining_date: Optional[str] = None
+    bank_account: Optional[str] = None
+    ifsc: Optional[str] = None
+    elevated_roles: Optional[List[str]] = None
+    attendance_config_id: Optional[int] = None
 
 
 # ---------- Tenant settings ----------
