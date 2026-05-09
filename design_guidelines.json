@@ -1,0 +1,138 @@
+{
+  "theme": "light",
+  "archetype": "Swiss & High-Contrast (Restrained Corporate Edition)",
+  "global_constraints": {
+    "mobile_first": true,
+    "pwa_ready": true,
+    "animations": "minimal (max 150ms duration, fade only, no bouncy/springs)",
+    "aesthetic": "trustworthy, premium, strict, minimal, flat"
+  },
+  "colors": {
+    "background": {
+      "primary": "#FFFFFF",
+      "secondary": "#F9FAFB",
+      "tertiary": "#F3F4F6"
+    },
+    "text": {
+      "primary": "#0A0A0A",
+      "secondary": "#737373",
+      "disabled": "#A1A1AA"
+    },
+    "brand": {
+      "accent_blue": "#2563EB",
+      "accent_blue_hover": "#1D4ED8",
+      "ink_black": "#0A0A0A"
+    },
+    "status": {
+      "success": "#16A34A",
+      "error": "#DC2626",
+      "warning": "#D97706",
+      "info": "#2563EB"
+    },
+    "borders": {
+      "default": "#E5E7EB",
+      "focus": "#2563EB"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "login_heading": "'Playfair Display', serif",
+      "body": "'IBM Plex Sans', sans-serif",
+      "headings": "'IBM Plex Sans', sans-serif"
+    },
+    "scale": {
+      "h1": "text-2xl sm:text-3xl font-semibold tracking-tight",
+      "h2": "text-xl sm:text-2xl font-semibold tracking-tight",
+      "h3": "text-lg font-medium tracking-tight",
+      "body": "text-base",
+      "small": "text-sm",
+      "tiny": "text-xs uppercase tracking-widest font-medium"
+    },
+    "formatting": {
+      "numbers": "en-IN locale for Indian comma grouping (e.g., 1,00,000)",
+      "currency_symbol": "₹"
+    }
+  },
+  "spacing_and_layout": {
+    "tap_targets": "Minimum 44px height and width for all interactive elements (buttons, inputs, icons)",
+    "container_padding": "p-4 sm:p-6 lg:p-8",
+    "gap": "gap-4 sm:gap-6",
+    "border_radius": {
+      "buttons": "rounded-md",
+      "cards": "rounded-lg",
+      "inputs": "rounded-md"
+    },
+    "shadows": {
+      "cards": "shadow-sm",
+      "popovers": "shadow-md"
+    }
+  },
+  "navigation": {
+    "mobile": {
+      "type": "bottom_tab_bar",
+      "height": "h-16",
+      "classes": "fixed bottom-0 w-full bg-white border-t border-gray-200 z-50 flex justify-around items-center safe-area-pb"
+    },
+    "desktop": {
+      "type": "sidebar",
+      "width": "w-64",
+      "classes": "fixed left-0 top-0 h-screen bg-white border-r border-gray-200 z-40 hidden md:flex flex-col"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-blue-600 text-white hover:bg-blue-700 h-12 px-6 rounded-md transition-opacity duration-150 font-medium",
+      "secondary": "bg-white text-gray-900 border border-gray-300 hover:bg-gray-50 h-12 px-6 rounded-md transition-opacity duration-150",
+      "ghost": "bg-transparent text-gray-700 hover:bg-gray-100 h-12 px-6 rounded-md transition-opacity duration-150"
+    },
+    "inputs": {
+      "text": "h-12 w-full border border-gray-300 rounded-md px-4 focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none bg-white",
+      "labels": "block text-sm font-medium text-gray-700 mb-1"
+    },
+    "cards": {
+      "default": "bg-white border border-gray-200 rounded-lg p-4 sm:p-6 shadow-sm"
+    },
+    "tables": {
+      "container": "w-full overflow-x-auto",
+      "header": "bg-gray-50 border-y border-gray-200 text-xs font-medium text-gray-500 uppercase tracking-wider text-left py-3 px-4",
+      "cell": "py-4 px-4 text-sm text-gray-900 border-b border-gray-100"
+    }
+  },
+  "animations": {
+    "transitions": "transition-opacity duration-150 ease-in-out",
+    "hover": "opacity change only, no translation or scaling"
+  },
+  "domain_specific_rules": {
+    "permission_aware_ui": "Elements that a user lacks permission to interact with MUST be completely removed from the DOM, not just disabled.",
+    "attendance_marking": {
+      "viewfinder": "Large aspect-ratio-square container for camera feed",
+      "button": "Massive tap-to-mark button (min h-16) placed centrally at the bottom"
+    },
+    "geofence_editor": {
+      "map_container": "Full width, aspect-video or height-96",
+      "controls": "Floating card overlaid on map for radius slider"
+    },
+    "pwa_requirements": {
+      "theme_color": "#FFFFFF",
+      "display": "standalone",
+      "meta_viewport": "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    }
+  },
+  "testing": {
+    "data_test_id": "All interactive elements (buttons, inputs, links, tabs) MUST have a data-testid attribute formatted in kebab-case representing their role (e.g., login-submit-button, employee-leave-request-tab)."
+  },
+  "media": {
+    "login_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/5320d3a2-a1dd-4dfc-b010-3694d9ff1f62/images/e804cf8be8f2ec08a3b0020096b4af8f5698e7927c0e42c6321c6ea949d8d661.png",
+      "description": "Minimal abstract light background for the login screen."
+    },
+    "employee_avatar_placeholder_1": {
+      "url": "https://images.unsplash.com/photo-1652471943570-f3590a4e52ed?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODR8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHByb2ZpbGUlMjBoZWFkc2hvdHxlbnwwfHx8fDE3NzgzMzU0ODl8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Placeholder avatar for male employee."
+    },
+    "employee_avatar_placeholder_2": {
+      "url": "https://images.unsplash.com/photo-1655249493799-9cee4fe983bb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODR8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHByb2ZpbGUlMjBoZWFkc2hvdHxlbnwwfHx8fDE3NzgzMzU0ODl8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Placeholder avatar for generic employee."
+    }
+  }
+}
