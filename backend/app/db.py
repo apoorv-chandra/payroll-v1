@@ -41,3 +41,5 @@ async def ensure_indexes() -> None:
     await db.audit_logs.create_index([("tenant_id", 1), ("created_at", -1)])
     await db.captchas.create_index("expires_at", expireAfterSeconds=0)
     await db.platform_settings.create_index("key", unique=True)
+    await db.user_consents.create_index("user_id", unique=True)
+    await db.erasure_requests.create_index([("user_id", 1), ("status", 1)])

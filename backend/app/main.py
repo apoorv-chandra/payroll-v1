@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import configure_logging, settings
 from .db import ensure_indexes
+from .scheduler import start_scheduler, stop_scheduler
 from .services.seed import seed_super_admin, seed_platform_settings
 from .utils import now_utc
 
@@ -17,6 +18,7 @@ from .routes import employees as employees_routes
 from .routes import attendance as attendance_routes
 from .routes import leaves as leaves_routes
 from .routes import payroll as payroll_routes
+from .routes import privacy as privacy_routes
 
 
 @asynccontextmanager
@@ -25,7 +27,11 @@ async def lifespan(app: FastAPI):
     await ensure_indexes()
     await seed_super_admin()
     await seed_platform_settings()
-    yield
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
 
 
 def create_app() -> FastAPI:
@@ -45,6 +51,7 @@ def create_app() -> FastAPI:
     api.include_router(attendance_routes.router)
     api.include_router(leaves_routes.router)
     api.include_router(payroll_routes.router)
+    api.include_router(privacy_routes.router)
 
     @api.get("/health")
     async def health():

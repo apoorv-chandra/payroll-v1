@@ -3,27 +3,159 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollText, Download, Plus, Home, History } from "lucide-react";
+import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollText, Download, Plus, Home, History, Shield, WifiOff, CloudUpload, Trash2 } from "lucide-react";
 import FaceLiveness from "../components/FaceLiveness";
+import ConsentGate from "../components/ConsentGate";
+import PrivacyNotice from "../components/PrivacyNotice";
+import { enqueue } from "../lib/offlineQueue";
+import useOnline from "../lib/useOnline";
 
 const NAV = [
   { id: "home", to: "/me", end: true, label: "Home", icon: Home },
   { id: "history", to: "/me/history", label: "History", icon: History },
   { id: "leaves", to: "/me/leaves", label: "Leaves", icon: Calendar },
   { id: "slips", to: "/me/slips", label: "Salary", icon: ScrollText },
+  { id: "privacy", to: "/me/privacy", label: "Privacy", icon: Shield },
 ];
 
 export default function EmployeeApp() {
   return (
-    <Shell nav={NAV}>
-      <Routes>
-        <Route index element={<HomeScreen />} />
-        <Route path="history" element={<HistoryScreen />} />
-        <Route path="leaves" element={<LeavesScreen />} />
-        <Route path="slips" element={<SlipsScreen />} />
-        <Route path="*" element={<Navigate to="/me" replace />} />
-      </Routes>
-    </Shell>
+    <ConsentGate>
+      <Shell nav={NAV}>
+        <OfflineBanner />
+        <Routes>
+          <Route index element={<HomeScreen />} />
+          <Route path="history" element={<HistoryScreen />} />
+          <Route path="leaves" element={<LeavesScreen />} />
+          <Route path="slips" element={<SlipsScreen />} />
+          <Route path="privacy" element={<PrivacyScreen />} />
+          <Route path="*" element={<Navigate to="/me" replace />} />
+        </Routes>
+      </Shell>
+    </ConsentGate>
+  );
+}
+
+function OfflineBanner() {
+  const { online, queued, drain } = useOnline();
+  if (online && queued === 0) return null;
+  return (
+    <div
+      data-testid="offline-banner"
+      className={`fixed top-14 inset-x-0 z-30 flex items-center justify-center gap-2 text-sm py-2 ${online ? "bg-amber-50 text-amber-800 border-b border-amber-200" : "bg-gray-900 text-white"}`}
+    >
+      {online ? (
+        <>
+          <CloudUpload className="h-4 w-4" />
+          <span>{queued} attendance mark{queued === 1 ? "" : "s"} queued — syncing…</span>
+          <button onClick={drain} className="underline">Retry now</button>
+        </>
+      ) : (
+        <>
+          <WifiOff className="h-4 w-4" />
+          <span>Offline — attendance marks will queue and sync when you reconnect.</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PrivacyScreen() {
+  const [data, setData] = useState(null);
+  const [showNotice, setShowNotice] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const load = async () => { try { setData((await api.get("/me/privacy")).data); } catch { setData({}); } };
+  useEffect(() => { load(); }, []);
+
+  const update = async (key, value) => {
+    setBusy(true); setMsg("");
+    try {
+      const next = { ...data.consents, [key]: value };
+      await api.put("/me/privacy/consents", { consents: next });
+      load(); setMsg("Saved.");
+      setTimeout(() => setMsg(""), 1500);
+    } catch (e) {
+      setMsg(fmtErr(e));
+    } finally { setBusy(false); }
+  };
+
+  const exportData = async () => {
+    const res = await api.get("/me/data-export", { responseType: "blob" });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement("a"); a.href = url; a.download = `my-data-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
+  };
+
+  const requestErasure = async () => {
+    if (!window.confirm("This schedules your account deletion in 30 days. You can cancel anytime before then. Proceed?")) return;
+    try { await api.post("/me/erasure-request"); load(); }
+    catch (e) { setMsg(fmtErr(e)); }
+  };
+  const cancelErasure = async () => {
+    await api.delete("/me/erasure-request"); load();
+  };
+
+  if (!data) return <Spinner />;
+  const c = data.consents || {};
+  return (
+    <div>
+      <PrivacyNotice open={showNotice} onClose={() => setShowNotice(false)} />
+      <PageHeader title="Privacy & data"
+        subtitle="Your DPDP rights — view, export and delete." />
+      <div className="space-y-4">
+        <Card>
+          <h3 className="font-semibold text-ink mb-3">Consents</h3>
+          <ul className="divide-y divide-gray-100">
+            {[
+              ["face_capture", "Face capture during attendance"],
+              ["geo_location", "Location sharing during attendance"],
+              ["whatsapp_email", "Notifications by WhatsApp / Email"],
+            ].map(([k, label]) => (
+              <li key={k} className="py-3 flex items-center justify-between">
+                <span className="text-sm">{label}</span>
+                <button
+                  onClick={() => update(k, !c[k])}
+                  disabled={busy}
+                  className={`h-9 px-4 rounded-full text-sm font-medium ${c[k] ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}
+                  data-testid={`toggle-${k}`}
+                >
+                  {c[k] ? "Granted" : "Withdrawn"}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 text-xs text-gray-500">
+            <button className="text-blue-600 underline" onClick={() => setShowNotice(true)} data-testid="open-privacy-link">Read the full privacy notice</button>
+          </div>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold text-ink mb-1">Export my data</h3>
+          <p className="text-sm text-gray-500 mb-3">Download everything we hold about you as a JSON file.</p>
+          <Button variant="secondary" onClick={exportData} data-testid="export-data"><Download className="h-4 w-4" />Download</Button>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold text-ink mb-1">Delete my account</h3>
+          {data.erasure_request ? (
+            <>
+              <p className="text-sm text-gray-700 mb-3">
+                Your account will be deleted on <b>{fmtDate(data.erasure_request.scheduled_for)}</b>.
+              </p>
+              <Button variant="secondary" onClick={cancelErasure} data-testid="cancel-erasure">Cancel deletion</Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500 mb-3">After a 30-day notice, your account and all linked data are permanently deleted.</p>
+              <Button variant="danger" onClick={requestErasure} data-testid="request-erasure"><Trash2 className="h-4 w-4" />Request deletion</Button>
+            </>
+          )}
+        </Card>
+
+        {msg && <div className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 inline-block">{msg}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -136,19 +268,34 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
 
   const submit = async () => {
     setBusy(true); setErr("");
+    const payload = {
+      method: skipFacial ? "normal" : "facial",
+      type: actualMode,
+      date: mode === "backdate" ? pickedDate : undefined,
+      latitude: coords?.latitude,
+      longitude: coords?.longitude,
+      accuracy: coords?.accuracy,
+      facial_image: skipFacial ? null : snap,
+      overwrite,
+    };
     try {
-      await api.post("/attendance/mark", {
-        method: skipFacial ? "normal" : "facial",
-        type: actualMode,
-        date: mode === "backdate" ? pickedDate : undefined,
-        latitude: coords?.latitude,
-        longitude: coords?.longitude,
-        accuracy: coords?.accuracy,
-        facial_image: skipFacial ? null : snap,
-        overwrite,
-      });
+      await api.post("/attendance/mark", payload);
       onMarked();
-    } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
+    } catch (e) {
+      // Network error → queue offline and acknowledge
+      if (!navigator.onLine || e?.code === "ERR_NETWORK") {
+        try {
+          await enqueue(payload);
+          alert("You're offline — attendance is queued and will sync when you're back online.");
+          onMarked();
+          return;
+        } catch (qe) {
+          setErr("Could not queue offline. Try again.");
+        }
+      } else {
+        setErr(fmtErr(e));
+      }
+    } finally { setBusy(false); }
   };
 
   const verified = !!snap || skipFacial;

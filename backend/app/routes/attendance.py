@@ -55,6 +55,13 @@ async def mark_attendance(
     if (today_d - td).days > max_back:
         raise HTTPException(status_code=400, detail=f"Date is older than the {max_back}-day backdate limit")
 
+    # ✅ DPDP: enforce consent for sensitive collection
+    consents = (await db.user_consents.find_one({"user_id": user["_id"]}) or {}).get("consents", {})
+    if req.method in ("facial", "facial_voice") and not consents.get("face_capture"):
+        raise HTTPException(status_code=400, detail="Face capture consent not granted. Update your privacy preferences.")
+    if (req.latitude is not None or req.longitude is not None) and not consents.get("geo_location"):
+        raise HTTPException(status_code=400, detail="Location consent not granted. Update your privacy preferences.")
+
     if await _payroll_finalized(user["tenant_id"], target_date):
         raise HTTPException(
             status_code=400,

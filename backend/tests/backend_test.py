@@ -238,6 +238,10 @@ def test_17_geo_fence_enforcement():
     geo_login = _login(payload["email"], payload["password"])
     geo_token = geo_login.json()["access_token"]
 
+    # Grant consent (DPDP) so the request reaches the geo-fence check
+    requests.put(f"{API}/me/privacy/consents", headers=_hdr(geo_token),
+                 json={"consents": {"data_processing": True, "face_capture": True, "geo_location": True, "whatsapp_email": True}})
+
     # Far away coords
     r3 = requests.post(f"{API}/attendance/mark", headers=_hdr(geo_token),
                        json={"type": "check_in", "method": "normal", "latitude": 28.6139, "longitude": 77.2090})

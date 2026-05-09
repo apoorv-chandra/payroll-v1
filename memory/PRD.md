@@ -50,7 +50,13 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
-## Implemented (May 9, 2026 — v2)
+## Implemented (May 9, 2026 — v3 / DPDP + offline + cron)
+**v3 additions**
+- **Offline attendance queue** — IndexedDB store (`payroll-offline.attendance-queue`); when network call fails, mark is enqueued; auto-drains on `online` event + every 5 s; UI shows offline / "queued — syncing" banner.
+- **DPDP consent screens** — `ConsentGate` blocks first login until employee accepts/declines 4 consent keys (`data_processing` mandatory · `face_capture` · `geo_location` · `whatsapp_email`). Privacy tab in employee app for live withdrawal, JSON data export, 30-day account erasure request + cancel. Backend enforces consent on `/api/attendance/mark` (face_capture + geo_location).
+- **Privacy notice template** at `/app/PRIVACY_POLICY.md` — fill `{{COMPANY_LEGAL_NAME}}` etc. before going live.
+- **Scheduled jobs (APScheduler, IST)** — 1st of every month at 02:00: auto-draft payroll for the previous month for every active tenant; daily at 03:00: process erasure requests past their 30-day notice window.
+- **Backend route** `/api/me/privacy` (GET/PUT consents), `/api/me/data-export`, `/api/me/erasure-request` (POST/DELETE).
 **Backend (33/33 tests pass)**
 - Modular structure (no Emergent dependencies; works on any VPS / Render / Fly / k8s)
 - Captcha-protected login + bcrypt + JWT
