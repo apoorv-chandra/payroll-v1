@@ -50,6 +50,18 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Feb 16, 2026 — v6 / hardened offline queue)
+**v6 additions**
+- **Offline attendance queue hardened** — `enqueue()` now stamps `user_id` so cross-account leakage is impossible. `drainQueue` returns `{ok, failed, needs_auth, skipped}` and:
+  - Skips items belonging to a different user (kept in IDB until that user logs back in).
+  - On **401** marks the item `needs_auth=true` and STOPS the drain — never silently drops a successful mark. The OfflineBanner shows a red "Session expired — sign in again" cue with `data-testid='needs-auth-banner'`.
+  - On 4xx ≠ 401 drops the item with the reason captured (e.g. "Consent withdrawn").
+  - On 5xx / network errors applies **exponential backoff**: 30s → 60s → 120s → … capped at 15 min.
+- `useOnline` now drains on `online` event, on mount, AND every 30s while items are queued. Re-entry guarded via `useRef`.
+- `AuthContext.login()` automatically calls `clearAuthBlock()` so re-login un-pauses any queued marks.
+- IndexedDB open errors no longer poison the singleton — `dbp` is reset on failure for transparent retry.
+- **Tests**: 13/13 offline-queue Playwright assertions PASS (user isolation, backoff math, 401 handling, banner states, IDB cache reset).
+
 ## Implemented (Feb 16, 2026 — v5 / accountant UI + mobile home + optional geo)
 **v5 additions**
 - **Accountant workflow** now actually visible — accountants (employees with `elevated_roles=['accountant']`) see a 6th bottom-nav tab `Payroll` (`/me/payroll`) with full run list, generate-run, edit-deductions, and submit-for-approval. Backend `GET /api/payroll/runs` was returning 403 to accountants (used `require_employer_or_admin`) — fixed to use `_can_run_payroll`.
