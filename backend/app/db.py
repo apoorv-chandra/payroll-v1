@@ -4,13 +4,20 @@ Architecture: hybrid.
   • Global database (`settings.DB_NAME`) holds cross-tenant primitives:
       tenants, users, captchas, platform_settings.
     Auth must look up users by email regardless of tenant, so users live here.
-  • Per-tenant database (`{settings.DB_NAME}_t_<safe_tenant_id>`) holds the
+  • Per-tenant database (`{settings.DB_NAME}_t_<short_hash>`) holds the
     rest: employees, attendance, leaves, leave_balances, payroll_runs,
     payroll_items, audit_logs, user_consents, erasure_requests.
     Strong physical isolation; one client cannot see another's data even
     in the case of a code-level bug omitting `tenant_id` filters.
+
+Naming note: MongoDB Atlas caps DB names at 38 bytes, so we deterministically
+hash the tenant_id with blake2s into 24 hex chars. Total length:
+  len(DB_NAME) + 3 ("_t_") + 24  ≤ 38  → DB_NAME must stay ≤ 11 chars.
+80-bit hash space (~10^24) is collision-free for the lifetime of the platform.
 """
 from __future__ import annotations
+
+import hashlib
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
@@ -36,9 +43,18 @@ db = global_db()
 
 
 def _safe_tenant_suffix(tenant_id: str) -> str:
-    """Mongo db names disallow .$/\\ space NUL — UUIDs only have hex+dashes,
-    we strip dashes for cleaner names."""
-    return (tenant_id or "").replace("-", "").replace(".", "")
+    """24-hex-char blake2s digest of the tenant_id.
+
+    Stable across restarts; 80 bits of collision space; fits inside Atlas's
+    38-char db-name limit when paired with a sensible DB_NAME.
+    """
+    if not tenant_id:
+        raise ValueError("tenant_id is empty")
+    return hashlib.blake2s(tenant_id.encode("utf-8"), digest_size=12).hexdigest()
+
+
+def tenant_db_name(tenant_id: str) -> str:
+    return f"{settings.DB_NAME}_t_{_safe_tenant_suffix(tenant_id)}"
 
 
 def tenant_db(tenant_id: str) -> AsyncIOMotorDatabase:
@@ -46,7 +62,7 @@ def tenant_db(tenant_id: str) -> AsyncIOMotorDatabase:
     ensuring `tenant_id` belongs to the authenticated user."""
     if not tenant_id:
         raise ValueError("tenant_db() requires a tenant_id")
-    return get_client()[f"{settings.DB_NAME}_t_{_safe_tenant_suffix(tenant_id)}"]
+    return get_client()[tenant_db_name(tenant_id)]
 
 
 # Per-tenant collections that we migrate from the legacy shared DB.
@@ -64,6 +80,15 @@ PER_TENANT_COLLECTIONS = (
 
 
 async def ensure_indexes() -> None:
+    # Sanity check — Atlas caps DB names at 38 bytes. Our scheme is
+    # `{DB_NAME}_t_<24hex>` = len(DB_NAME) + 27 bytes.
+    if len(settings.DB_NAME) + 27 > 38:
+        raise RuntimeError(
+            f"DB_NAME='{settings.DB_NAME}' is too long for per-tenant naming. "
+            f"Max DB_NAME length is 11 chars (got {len(settings.DB_NAME)}). "
+            f"Set a shorter DB_NAME in your environment (e.g. 'payroll')."
+        )
+
     # Global indexes — cross-tenant primitives.
     await db.users.create_index("email", unique=True)
     await db.tenants.create_index("name")
@@ -89,3 +114,17 @@ async def ensure_tenant_indexes(tenant_id: str) -> None:
     await tdb.audit_logs.create_index([("created_at", -1)])
     await tdb.user_consents.create_index("user_id", unique=True)
     await tdb.erasure_requests.create_index([("user_id", 1), ("status", 1)])
+
+
+# Per-tenant collections that we migrate from the legacy shared DB.
+PER_TENANT_COLLECTIONS = (
+    "employees",
+    "attendance",
+    "leave_applications",
+    "leave_balances",
+    "payroll_runs",
+    "payroll_items",
+    "audit_logs",
+    "user_consents",
+    "erasure_requests",
+)
