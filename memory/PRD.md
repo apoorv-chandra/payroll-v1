@@ -50,6 +50,15 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Feb 17, 2026 — v7 / 6-bug pass + security hardening)
+**v7 fixes**
+- **Bug 1 — modal cut off by bottom nav**: `Modal` primitive overlay now has `pb-bottom-nav sm:pb-0` so the Mark-In/Out button is always clickable on mobile.
+- **Bug 2 — segregation of duties**: removed `Submit for approval` button from Employer's payroll view (and unused `submit()` handler). Accountant submits, Employer approves — clean SoD.
+- **Bug 3 — totals**: added Totals card / `<tfoot>` row with `total-gross`, `total-deductions`, `total-net` testids to both EmployerApp and AccountantPayrollRun payroll views.
+- **Bug 4 + 5 — camera/location unconditional**: `GET /api/attendance/config` now returns `{config_id, requires_facial, requires_geo, geo_fence_enforced}` derived from the employee's `attendance_config_id` (override) or tenant `default_config_id`. Frontend `AttendanceModal` reads it and renders FaceLiveness ONLY if `requires_facial`; calls `navigator.geolocation` ONLY if `requires_geo`. Geo-fence enforcement requires BOTH the config bit AND tenant `geo_fence.enabled`.
+- **Bug 6 — security hardening**: new `SecurityHeadersMiddleware` adds HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, and CSP on every API response. Verified zero `dangerouslySetInnerHTML`/`innerHTML` usage in frontend (React escapes by default).
+- **Tests**: `/app/backend/tests/test_security_and_config.py` — 8 new + 67 regression = **75/75 pass**, 7/7 frontend assertions.
+
 ## Implemented (Feb 16, 2026 — v6 / hardened offline queue)
 **v6 additions**
 - **Offline attendance queue hardened** — `enqueue()` now stamps `user_id` so cross-account leakage is impossible. `drainQueue` returns `{ok, failed, needs_auth, skipped}` and:
