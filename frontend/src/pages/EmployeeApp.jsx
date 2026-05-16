@@ -45,18 +45,25 @@ export default function EmployeeApp() {
 }
 
 function OfflineBanner() {
-  const { online, queued, drain } = useOnline();
-  if (online && queued === 0) return null;
+  const { online, queued, needsAuth, drain } = useOnline();
+  if (online && queued === 0 && !needsAuth) return null;
   return (
     <div
       data-testid="offline-banner"
-      className={`fixed top-14 inset-x-0 z-30 flex items-center justify-center gap-2 text-sm py-2 ${online ? "bg-amber-50 text-amber-800 border-b border-amber-200" : "bg-gray-900 text-white"}`}
+      className={`fixed top-14 inset-x-0 z-30 flex items-center justify-center gap-2 text-sm py-2 ${needsAuth ? "bg-red-50 text-red-800 border-b border-red-200" : online ? "bg-amber-50 text-amber-800 border-b border-amber-200" : "bg-gray-900 text-white"}`}
     >
-      {online ? (
+      {needsAuth ? (
+        <>
+          <Shield className="h-4 w-4" />
+          <span data-testid="needs-auth-banner">
+            Session expired — sign in again to sync {queued} queued mark{queued === 1 ? "" : "s"}.
+          </span>
+        </>
+      ) : online ? (
         <>
           <CloudUpload className="h-4 w-4" />
           <span>{queued} attendance mark{queued === 1 ? "" : "s"} queued — syncing…</span>
-          <button onClick={drain} className="underline">Retry now</button>
+          <button onClick={drain} className="underline" data-testid="retry-drain-btn">Retry now</button>
         </>
       ) : (
         <>

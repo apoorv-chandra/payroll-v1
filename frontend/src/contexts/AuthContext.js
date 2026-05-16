@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api } from "../lib/api";
+import { clearAuthBlock } from "../lib/offlineQueue";
 
 const AuthCtx = createContext(null);
 
@@ -27,6 +28,8 @@ export function AuthProvider({ children }) {
       if (data?.access_token) localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("auth_user", JSON.stringify(data.user));
       setUser(data.user);
+      // Unblock any queued attendance marks that were paused waiting for fresh auth.
+      try { await clearAuthBlock(); } catch { /* noop */ }
       return data.user;
     } catch (e) {
       const d = e?.response?.data?.detail;
