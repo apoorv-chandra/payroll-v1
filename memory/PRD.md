@@ -50,6 +50,13 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Feb 16, 2026 — v5 / accountant UI + mobile home + optional geo)
+**v5 additions**
+- **Accountant workflow** now actually visible — accountants (employees with `elevated_roles=['accountant']`) see a 6th bottom-nav tab `Payroll` (`/me/payroll`) with full run list, generate-run, edit-deductions, and submit-for-approval. Backend `GET /api/payroll/runs` was returning 403 to accountants (used `require_employer_or_admin`) — fixed to use `_can_run_payroll`.
+- **Employee Home screen redesigned** per user's mobile sketch — live ticking date+time card, status section ('No data for today yet' OR 'Working since X · Yh Mm' with live timer until checkout), toggle to expand today's past mark-ins, big primary 'Mark In/Out' button at bottom.
+- **Geolocation is now truly optional in the UX** — non-blocking acquisition with 8s hard timeout, clear `loc-status` text ('Location captured ±Xm' / 'Location not captured — that's OK, you can still mark.'). Confirm button is no longer disabled by missing location. Backend behaviour unchanged: geo only enforced when tenant has geo-fence enabled.
+- **Tests**: `/app/backend/tests/test_accountant_payroll.py` (18 tests, 100% pass). Total backend: **51/51 green**.
+
 ## Implemented (Feb 9, 2026 — v4 / SaaS self-serve)
 **v4 additions**
 - **Employee self-serve onboarding** — public `/signup` page with employer dropdown, name/email/phone/password, captcha, DPDP consent. Creates a `pending` user (login blocked) under the chosen tenant.

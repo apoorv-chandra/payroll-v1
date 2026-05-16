@@ -156,11 +156,8 @@ async def generate_payroll(req: GeneratePayrollRequest, user: dict = Depends(get
 async def list_runs(user: dict = Depends(get_current_user)):
     if user["role"] == "super_admin":
         raise HTTPException(status_code=400, detail="Use tenant scope")
-    # Employers see all; accountants (elevated employees) also see all to do
-    # their own payroll workflow.
-    if user["role"] == "employer" or _can_run_payroll(user):
-        pass
-    else:
+    # _can_run_payroll covers employer AND accountant-elevated employees.
+    if not _can_run_payroll(user):
         raise HTTPException(status_code=403, detail="Forbidden")
     out = []
     async for r in db.payroll_runs.find({"tenant_id": user["tenant_id"]}).sort([("year", -1), ("month", -1)]):
