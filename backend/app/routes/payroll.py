@@ -153,9 +153,15 @@ async def generate_payroll(req: GeneratePayrollRequest, user: dict = Depends(get
 
 # ---------- List / detail ----------
 @router.get("/runs")
-async def list_runs(user: dict = Depends(require_employer_or_admin)):
+async def list_runs(user: dict = Depends(get_current_user)):
     if user["role"] == "super_admin":
         raise HTTPException(status_code=400, detail="Use tenant scope")
+    # Employers see all; accountants (elevated employees) also see all to do
+    # their own payroll workflow.
+    if user["role"] == "employer" or _can_run_payroll(user):
+        pass
+    else:
+        raise HTTPException(status_code=403, detail="Forbidden")
     out = []
     async for r in db.payroll_runs.find({"tenant_id": user["tenant_id"]}).sort([("year", -1), ("month", -1)]):
         r["id"] = r["_id"]

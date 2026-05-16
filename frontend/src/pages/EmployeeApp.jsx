@@ -1,27 +1,33 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollText, Download, Plus, Home, History, Shield, WifiOff, CloudUpload, Trash2 } from "lucide-react";
+import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollText, Download, Plus, Home, History, Shield, WifiOff, CloudUpload, Trash2, ChevronDown, ChevronUp, Send, Check, X, Banknote, Calculator } from "lucide-react";
 import FaceLiveness from "../components/FaceLiveness";
 import ConsentGate from "../components/ConsentGate";
 import PrivacyNotice from "../components/PrivacyNotice";
 import { enqueue } from "../lib/offlineQueue";
 import useOnline from "../lib/useOnline";
+import { useAuth } from "../contexts/AuthContext";
+import useConfirm from "../lib/useConfirm";
 
-const NAV = [
+const BASE_NAV = [
   { id: "home", to: "/me", end: true, label: "Home", icon: Home },
   { id: "history", to: "/me/history", label: "History", icon: History },
   { id: "leaves", to: "/me/leaves", label: "Leaves", icon: Calendar },
   { id: "slips", to: "/me/slips", label: "Salary", icon: ScrollText },
   { id: "privacy", to: "/me/privacy", label: "Privacy", icon: Shield },
 ];
+const ACCOUNTANT_TAB = { id: "payroll", to: "/me/payroll", label: "Payroll", icon: Calculator };
 
 export default function EmployeeApp() {
+  const { user } = useAuth();
+  const isAccountant = (user?.elevated_roles || []).includes("accountant");
+  const nav = isAccountant ? [...BASE_NAV, ACCOUNTANT_TAB] : BASE_NAV;
   return (
     <ConsentGate>
-      <Shell nav={NAV}>
+      <Shell nav={nav}>
         <OfflineBanner />
         <Routes>
           <Route index element={<HomeScreen />} />
@@ -29,6 +35,8 @@ export default function EmployeeApp() {
           <Route path="leaves" element={<LeavesScreen />} />
           <Route path="slips" element={<SlipsScreen />} />
           <Route path="privacy" element={<PrivacyScreen />} />
+          {isAccountant && <Route path="payroll" element={<AccountantPayroll />} />}
+          {isAccountant && <Route path="payroll/:runId" element={<AccountantPayrollRun />} />}
           <Route path="*" element={<Navigate to="/me" replace />} />
         </Routes>
       </Shell>
@@ -160,73 +168,165 @@ function PrivacyScreen() {
 }
 
 function HomeScreen() {
+  const { user } = useAuth();
   const [today, setToday] = useState(null);
-  const [balances, setBalances] = useState([]);
   const [open, setOpen] = useState(false);
   const [maxBack, setMaxBack] = useState(30);
+  const [showHistory, setShowHistory] = useState(false);
+  const [todayHistory, setTodayHistory] = useState([]);
+  const [clock, setClock] = useState(new Date());
+
+  // Live ticking clock for the date/time card.
+  useEffect(() => {
+    const t = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const load = async () => {
     try {
-      const [t, b, c] = await Promise.all([
+      const [t, c] = await Promise.all([
         api.get("/attendance/today"),
-        api.get("/leave/balances"),
         api.get("/attendance/config"),
       ]);
-      setToday(t.data); setBalances(b.data); setMaxBack(c.data?.max_backdate_days ?? 30);
+      setToday(t.data);
+      setMaxBack(c.data?.max_backdate_days ?? 30);
     } catch { setToday({ marked: false }); }
   };
   useEffect(() => { load(); }, []);
+
+  const loadHistory = async () => {
+    if (todayHistory.length || !today?.date) return;
+    try {
+      const now = new Date();
+      const r = await api.get("/attendance/history", { params: { month: now.getMonth() + 1, year: now.getFullYear() } });
+      setTodayHistory((r.data || []).filter((x) => x.date === today.date));
+    } catch { /* noop */ }
+  };
 
   if (!today) return <Spinner />;
   const rec = today.record || {};
   const hasIn = !!rec.check_in_at;
   const hasOut = !!rec.check_out_at;
 
-  return (
-    <div>
-      <PageHeader title="Today" subtitle={fmtDate(today.date)} />
+  // Working time since check-in (live ticking until check-out captured).
+  let workedLabel = null;
+  if (hasIn) {
+    const start = new Date(rec.check_in_at);
+    const end = hasOut ? new Date(rec.check_out_at) : clock;
+    const ms = Math.max(0, end - start);
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    workedLabel = `${h}h ${String(m).padStart(2, "0")}m`;
+  }
 
-      <Card className="mb-4">
-        <div className="flex items-center justify-between">
+  const nextAction = !hasIn ? "check_in" : !hasOut ? "check_out" : null;
+
+  return (
+    <div className="max-w-md mx-auto pb-24" data-testid="employee-home">
+      {/* Header — employee name */}
+      <div className="pt-2 pb-4">
+        <h1 className="font-serif text-3xl text-ink leading-tight" data-testid="employee-name">
+          {user?.name || "Welcome"}
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">{labelForRoles(user)}</p>
+      </div>
+
+      {/* Date & time card (live) */}
+      <Card className="mb-4" data-testid="datetime-card">
+        <div className="flex items-baseline justify-between">
           <div>
-            <div className="text-xs uppercase tracking-widest text-gray-500">Status</div>
-            <div className="text-2xl font-semibold text-ink mt-0.5">
-              {!hasIn ? "Not marked yet" : hasOut ? "Day completed" : "Checked in"}
-            </div>
-            <div className="text-sm text-gray-600 mt-1">
-              {hasIn && <span>In: <b className="tabular">{fmtTime(rec.check_in_at)}</b></span>}
-              {hasOut && <span className="ml-3">Out: <b className="tabular">{fmtTime(rec.check_out_at)}</b></span>}
-            </div>
+            <div className="text-xs uppercase tracking-widest text-gray-500">Today</div>
+            <div className="text-xl font-semibold text-ink mt-0.5">{fmtFullDate(clock)}</div>
           </div>
-          <Badge tone={hasOut ? "green" : hasIn ? "blue" : "neutral"}>
-            {hasOut ? "Done" : hasIn ? "Active" : "Pending"}
-          </Badge>
-        </div>
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <Button onClick={() => setOpen({ mode: "check_in", date: null })} disabled={hasIn} data-testid="check-in-btn">
-            <LogIn className="h-4 w-4" />Check in
-          </Button>
-          <Button variant="secondary" onClick={() => setOpen({ mode: "check_out", date: null })} disabled={!hasIn || hasOut} data-testid="check-out-btn">
-            <LogOutIcon className="h-4 w-4" />Check out
-          </Button>
-        </div>
-        <div className="mt-3 text-xs text-gray-500">
-          Missed a day? <button className="text-blue-600 underline" onClick={() => setOpen({ mode: "backdate", date: null })} data-testid="backdate-btn">Mark a past date</button> (up to {maxBack} days back).
+          <div className="tabular text-2xl font-semibold text-ink" data-testid="live-clock">
+            {fmtClock(clock)}
+          </div>
         </div>
       </Card>
 
-      <h3 className="text-sm uppercase tracking-widest text-gray-500 mb-2">Leave balances</h3>
-      {balances.length === 0 ? (
-        <Card className="text-sm text-gray-500">No leave types configured yet.</Card>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {balances.map((b) => (
-            <Card key={b.id} className="!p-4">
-              <div className="text-xs uppercase tracking-widest text-gray-500">{b.leave_type}</div>
-              <div className="text-2xl font-semibold text-ink tabular mt-1">{(b.quota - (b.used || 0) - (b.pending || 0)).toFixed(1)}</div>
-              <div className="text-xs text-gray-500 mt-0.5">of {b.quota} • {b.used || 0} used</div>
-            </Card>
-          ))}
+      {/* Status section */}
+      <Card className="mb-4" data-testid="status-card">
+        {!hasIn ? (
+          <div className="py-3 text-center">
+            <Clock className="h-8 w-8 mx-auto text-gray-300 mb-2" />
+            <div className="text-sm text-gray-600">No data for today yet.</div>
+            <div className="text-xs text-gray-400 mt-1">Tap the button below to mark your attendance.</div>
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-gray-500">
+                  {hasOut ? "Hours worked" : "Working since"}
+                </div>
+                <div className="text-3xl font-semibold text-ink tabular mt-1" data-testid="worked-hours">
+                  {workedLabel}
+                </div>
+              </div>
+              <Badge tone={hasOut ? "green" : "blue"}>{hasOut ? "Completed" : "Active"}</Badge>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-gray-50 rounded-md px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wider text-gray-500">Check in</div>
+                <div className="font-semibold text-ink tabular">{fmtTime(rec.check_in_at)}</div>
+              </div>
+              <div className="bg-gray-50 rounded-md px-3 py-2">
+                <div className="text-[11px] uppercase tracking-wider text-gray-500">Check out</div>
+                <div className="font-semibold text-ink tabular">{hasOut ? fmtTime(rec.check_out_at) : "—"}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Past mark-ins toggle */}
+        <button
+          type="button"
+          onClick={() => { setShowHistory((s) => !s); if (!showHistory) loadHistory(); }}
+          className="mt-4 w-full text-sm text-blue-600 inline-flex items-center justify-center gap-1 hover:underline"
+          data-testid="toggle-today-history"
+        >
+          {showHistory ? <><ChevronUp className="h-4 w-4" /> Hide today's history</> : <><ChevronDown className="h-4 w-4" /> Show today's mark-ins / outs</>}
+        </button>
+        {showHistory && (
+          <ul className="mt-3 divide-y divide-gray-100 text-sm">
+            {todayHistory.length === 0 ? (
+              <li className="py-2 text-gray-500 text-center">No earlier marks today.</li>
+            ) : todayHistory.map((r) => (
+              <li key={r.id} className="py-2 flex items-center justify-between">
+                <span className="text-gray-700">In {fmtTime(r.check_in_at)} • Out {r.check_out_at ? fmtTime(r.check_out_at) : "—"}</span>
+                <Badge tone={r.check_out_at ? "green" : "blue"}>{r.check_out_at ? "Done" : "Active"}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {/* Past dates link */}
+      <div className="mb-4 text-center text-xs text-gray-500">
+        Missed a day?{" "}
+        <button className="text-blue-600 underline" onClick={() => setOpen({ mode: "backdate" })} data-testid="backdate-btn">
+          Mark a past date
+        </button>{" "}
+        (up to {maxBack} days back).
+      </div>
+
+      {/* Primary action button — pinned visually near bottom */}
+      {nextAction && (
+        <Button
+          onClick={() => setOpen({ mode: nextAction })}
+          className="w-full !h-14 !text-base"
+          data-testid={nextAction === "check_in" ? "mark-in-btn" : "mark-out-btn"}
+        >
+          {nextAction === "check_in" ? (
+            <><LogIn className="h-5 w-5" /> Mark In</>
+          ) : (
+            <><LogOutIcon className="h-5 w-5" /> Mark Out</>
+          )}
+        </Button>
+      )}
+      {!nextAction && (
+        <div className="rounded-md bg-green-50 border border-green-100 text-green-800 px-4 py-3 text-sm text-center" data-testid="day-done">
+          ✓ Your day is complete. See you tomorrow!
         </div>
       )}
 
@@ -235,11 +335,25 @@ function HomeScreen() {
           mode={open.mode}
           maxBack={maxBack}
           onClose={() => setOpen(false)}
-          onMarked={() => { setOpen(false); load(); }}
+          onMarked={() => { setOpen(false); setTodayHistory([]); load(); }}
         />
       )}
     </div>
   );
+}
+
+function fmtFullDate(d) {
+  try { return d.toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "long" }); }
+  catch { return d.toDateString(); }
+}
+function fmtClock(d) {
+  try { return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }); }
+  catch { return d.toTimeString().slice(0, 8); }
+}
+function labelForRoles(u) {
+  const roles = u?.elevated_roles || [];
+  if (roles.length === 0) return "Employee";
+  return `Employee • ${roles.join(" • ")}`;
 }
 
 function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
@@ -257,13 +371,19 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
   const maxDate = today.toISOString().slice(0, 10);
 
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
-        (e) => setCoords({ error: e.message }),
-        { enableHighAccuracy: true, timeout: 10000 },
-      );
+    if (!navigator.geolocation) {
+      setCoords({ skipped: true });
+      return;
     }
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (p) => { if (!cancelled) setCoords({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }); },
+      () => { if (!cancelled) setCoords({ skipped: true }); },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+    // Hard stop: if it takes longer than 8s, don't block the user.
+    const t = setTimeout(() => { if (!cancelled) setCoords((c) => c || { skipped: true }); }, 8500);
+    return () => { cancelled = true; clearTimeout(t); };
   }, []);
 
   const submit = async () => {
@@ -272,9 +392,9 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
       method: skipFacial ? "normal" : "facial",
       type: actualMode,
       date: mode === "backdate" ? pickedDate : undefined,
-      latitude: coords?.latitude,
-      longitude: coords?.longitude,
-      accuracy: coords?.accuracy,
+      latitude: coords?.latitude ?? null,
+      longitude: coords?.longitude ?? null,
+      accuracy: coords?.accuracy ?? null,
       facial_image: skipFacial ? null : snap,
       overwrite,
     };
@@ -362,15 +482,19 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
 
         <div className="flex items-center gap-2 text-sm">
           <MapPin className="h-4 w-4 text-gray-500" />
-          {coords?.error ? (
-            <span className="text-amber-600">Location error: {coords.error}</span>
-          ) : coords ? (
-            <span className="text-gray-700 tabular">
-              {coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)}{" "}
+          {coords?.latitude ? (
+            <span className="text-gray-700 tabular" data-testid="loc-status">
+              Location captured{" "}
               <span className="text-gray-400">(±{Math.round(coords.accuracy)}m)</span>
             </span>
+          ) : coords?.skipped ? (
+            <span className="text-gray-500" data-testid="loc-status">
+              Location not captured — that's OK, you can still mark.
+            </span>
           ) : (
-            <span className="text-gray-500">Acquiring location…</span>
+            <span className="text-gray-500" data-testid="loc-status">
+              Acquiring location… (optional)
+            </span>
           )}
         </div>
 
@@ -524,4 +648,240 @@ function SlipsScreen() {
       )}
     </div>
   );
+}
+
+
+/* =====================================================================
+   ACCOUNTANT WORKFLOW
+   Visible only when user.elevated_roles includes "accountant".
+   Reuses the same /api/payroll/* endpoints the employer uses (backend
+   gates with _can_run_payroll which already allows accountants).
+===================================================================== */
+
+function AccountantPayroll() {
+  const navigate = useNavigate();
+  const [runs, setRuns] = useState(null);
+  const [open, setOpen] = useState(false);
+  const now = new Date();
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(now.getFullYear());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = async () => {
+    setRuns(null);
+    try { setRuns((await api.get("/payroll/runs")).data); } catch { setRuns([]); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const generate = async () => {
+    setBusy(true); setErr("");
+    try {
+      const { data } = await api.post("/payroll/generate", { month: Number(month), year: Number(year) });
+      setOpen(false); load();
+      navigate(`/me/payroll/${data.id}`);
+    } catch (e2) { setErr(fmtErr(e2)); } finally { setBusy(false); }
+  };
+
+  return (
+    <div data-testid="accountant-payroll">
+      <PageHeader
+        title="Payroll"
+        subtitle="Generate monthly runs, edit deductions and submit for approval."
+        action={<Button onClick={() => setOpen(true)} data-testid="generate-run"><Plus className="h-4 w-4" />Generate run</Button>}
+      />
+      {runs === null ? <Spinner /> : runs.length === 0 ? (
+        <Empty icon={ScrollText} title="No payroll runs yet" hint="Generate a draft run for the current month." action={<Button onClick={() => setOpen(true)}><Plus className="h-4 w-4" />Generate run</Button>} />
+      ) : (
+        <div className="space-y-3">
+          {runs.map((r) => (
+            <Card key={r.id} data-testid={`run-card-${r.id}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink">{monthName(r.month)} {r.year}</div>
+                  <div className="text-xs text-gray-500">{r.items_count} employees • {r.working_days}-day basis</div>
+                  <div className="text-[11px] text-gray-400 mt-1">Generated: {fmtDate(r.generated_at)}</div>
+                </div>
+                <Badge tone={statusTone(r.status)}>{r.status.replace("_", " ")}</Badge>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button variant="secondary" onClick={() => navigate(`/me/payroll/${r.id}`)} data-testid={`open-run-${r.id}`}>Open →</Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Generate payroll"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={generate} disabled={busy} data-testid="confirm-generate">{busy ? "Generating…" : "Generate"}</Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Month" value={month} onChange={(e) => setMonth(e.target.value)}>
+            {[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+          </Select>
+          <Input label="Year" type="number" value={year} onChange={(e) => setYear(e.target.value)} />
+        </div>
+        <p className="text-sm text-gray-500 mt-3">A draft run will calculate present days, paid leaves and net payable for every active employee. You can re-generate while the run is still draft.</p>
+        {err && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2 mt-3">{err}</div>}
+      </Modal>
+    </div>
+  );
+}
+
+function AccountantPayrollRun() {
+  const navigate = useNavigate();
+  const runId = window.location.pathname.split("/").pop();
+  const [run, setRun] = useState(null);
+  const [items, setItems] = useState([]);
+  const { confirm, ConfirmHost } = useConfirm();
+
+  const load = async () => {
+    const { data } = await api.get(`/payroll/runs/${runId}`);
+    setRun(data.run); setItems(data.items);
+  };
+  useEffect(() => { load(); }, [runId]);
+
+  const submit = async () => {
+    const ok = await confirm({
+      kind: "simple",
+      title: "Submit for approval?",
+      body: "After submission, your employer can approve or reject the run. Deductions can no longer be edited.",
+    });
+    if (!ok) return;
+    try { await api.post(`/payroll/runs/${runId}/submit`, {}); load(); }
+    catch (e) { alert(fmtErr(e)); }
+  };
+
+  const editDeduction = async (item) => {
+    const v = window.prompt(`Deduction for ${item.employee_name} (₹).`, item.deductions || 0);
+    if (v === null) return;
+    const d = Number(v);
+    if (Number.isNaN(d) || d < 0) return;
+    try { await api.put(`/payroll/items/${item.id}/deductions`, { deductions: d }); load(); }
+    catch (e) { alert(fmtErr(e)); }
+  };
+
+  const downloadSlip = async (item) => {
+    const res = await api.get(`/payroll/items/${item.id}/slip`, { responseType: "blob" });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement("a"); a.href = url; a.download = `slip-${item.emp_code}-${run.year}-${String(run.month).padStart(2,"0")}.pdf`; a.click(); URL.revokeObjectURL(url);
+  };
+
+  const disburse = async (item, method) => {
+    try { await api.post(`/payroll/items/${item.id}/disburse`, { method }); load(); }
+    catch (e) { alert(fmtErr(e)); }
+  };
+
+  if (!run) return <Spinner />;
+  const total = items.reduce((s, i) => s + (i.net_salary || 0), 0);
+  const canEdit = run.status === "draft";
+  const canDisburse = run.status === "approved" || run.status === "disbursed";
+
+  return (
+    <div className="pb-20" data-testid="accountant-payroll-run">
+      {ConfirmHost}
+      <PageHeader
+        title={`${monthName(run.month)} ${run.year}`}
+        subtitle={`${items.length} employees • Total ₹${fmtINR(total)}`}
+        action={
+          <div className="flex flex-wrap gap-2 items-center">
+            <Badge tone={statusTone(run.status)}>{run.status.replace("_", " ")}</Badge>
+            {canEdit && (
+              <Button variant="secondary" onClick={submit} data-testid="submit-run">
+                <Send className="h-4 w-4" />Submit for approval
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      {/* Mobile-friendly list of items */}
+      <div className="space-y-3">
+        {items.map((i) => (
+          <Card key={i.id} className="!p-4" data-testid={`item-row-${i.id}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-medium text-ink truncate">{i.employee_name}</div>
+                <div className="text-xs text-gray-500 font-mono">{i.emp_code}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-gray-500">Net</div>
+                <div className="font-semibold text-ink tabular">₹{fmtINR(i.net_salary)}</div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <div className="bg-gray-50 rounded-md px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500">Present</div>
+                <div className="font-semibold tabular">{i.present_days}</div>
+              </div>
+              <div className="bg-gray-50 rounded-md px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500">Leaves</div>
+                <div className="font-semibold tabular">{i.paid_leave_days}</div>
+              </div>
+              <div className="bg-gray-50 rounded-md px-2 py-1.5">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500">Gross</div>
+                <div className="font-semibold tabular">₹{fmtINR(i.gross_salary)}</div>
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-sm">
+              <span className="text-gray-600">
+                Deductions:{" "}
+                {canEdit ? (
+                  <button className="text-blue-600 underline" onClick={() => editDeduction(i)} data-testid={`edit-deduct-${i.id}`}>
+                    ₹{fmtINR(i.deductions || 0)}
+                  </button>
+                ) : (
+                  <span className="tabular">₹{fmtINR(i.deductions || 0)}</span>
+                )}
+              </span>
+              {(run.status === "approved" || run.status === "disbursed") && (
+                <button onClick={() => downloadSlip(i)} className="text-blue-600 inline-flex items-center gap-1 text-xs" data-testid={`slip-${i.id}`}>
+                  <Download className="h-3.5 w-3.5" />Slip
+                </button>
+              )}
+            </div>
+            {canDisburse && !i.disbursement && (
+              <div className="mt-2 flex gap-2">
+                <button onClick={() => disburse(i, "cash")} className="flex-1 h-9 rounded-md text-xs font-medium bg-gray-50 hover:bg-gray-100" data-testid={`pay-cash-${i.id}`}>
+                  <Banknote className="h-3.5 w-3.5 inline-block -mt-px mr-1" />Cash
+                </button>
+                <button onClick={() => disburse(i, "online")} className="flex-1 h-9 rounded-md text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100" data-testid={`pay-online-${i.id}`}>
+                  Online
+                </button>
+              </div>
+            )}
+            {i.disbursement && (
+              <div className="mt-2">
+                <Badge tone="green">{i.disbursement.method.toUpperCase()} • {i.disbursement.txn_id}</Badge>
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+
+      <div className="mt-4 text-xs text-gray-500">
+        * Online disbursement is currently <b>MOCKED</b>.
+      </div>
+      <div className="mt-4">
+        <Button variant="ghost" onClick={() => navigate("/me/payroll")}>← Back to runs</Button>
+      </div>
+    </div>
+  );
+}
+
+function statusTone(s) {
+  if (s === "draft") return "yellow";
+  if (s === "pending_approval") return "blue";
+  if (s === "approved") return "blue";
+  if (s === "disbursed") return "green";
+  if (s === "rejected") return "red";
+  return "neutral";
 }
