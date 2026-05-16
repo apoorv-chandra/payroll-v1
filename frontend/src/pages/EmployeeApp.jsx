@@ -178,7 +178,7 @@ function HomeScreen() {
   const { user } = useAuth();
   const [today, setToday] = useState(null);
   const [open, setOpen] = useState(false);
-  const [maxBack, setMaxBack] = useState(30);
+  const [config, setConfig] = useState({ max_backdate_days: 30, requires_facial: false, requires_geo: false });
   const [showHistory, setShowHistory] = useState(false);
   const [todayHistory, setTodayHistory] = useState([]);
   const [clock, setClock] = useState(new Date());
@@ -196,7 +196,7 @@ function HomeScreen() {
         api.get("/attendance/config"),
       ]);
       setToday(t.data);
-      setMaxBack(c.data?.max_backdate_days ?? 30);
+      setConfig(c.data || {});
     } catch { setToday({ marked: false }); }
   };
   useEffect(() => { load(); }, []);
@@ -314,7 +314,7 @@ function HomeScreen() {
         <button className="text-blue-600 underline" onClick={() => setOpen({ mode: "backdate" })} data-testid="backdate-btn">
           Mark a past date
         </button>{" "}
-        (up to {maxBack} days back).
+        (up to {config.max_backdate_days ?? 30} days back).
       </div>
 
       {/* Primary action button — pinned visually near bottom */}
@@ -340,7 +340,7 @@ function HomeScreen() {
       {open && (
         <AttendanceModal
           mode={open.mode}
-          maxBack={maxBack}
+          config={config}
           onClose={() => setOpen(false)}
           onMarked={() => { setOpen(false); setTodayHistory([]); load(); }}
         />
@@ -363,12 +363,17 @@ function labelForRoles(u) {
   return `Employee • ${roles.join(" • ")}`;
 }
 
-function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
+function AttendanceModal({ mode, config = {}, onClose, onMarked }) {
+  const requiresFacial = !!config.requires_facial;
+  const requiresGeo = !!config.requires_geo;
+  const maxBack = config.max_backdate_days ?? 30;
+
   const [coords, setCoords] = useState(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [snap, setSnap] = useState(null);
-  const [skipFacial, setSkipFacial] = useState(false);
+  // If config doesn't require facial, skip the camera entirely.
+  const [skipFacial, setSkipFacial] = useState(!requiresFacial);
   const [pickedDate, setPickedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [overwrite, setOverwrite] = useState(false);
   const [actualMode, setActualMode] = useState(mode === "backdate" ? "check_in" : mode);
@@ -378,6 +383,12 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
   const maxDate = today.toISOString().slice(0, 10);
 
   useEffect(() => {
+    // Honor the employer's config — don't even ask for geo permission
+    // if this employee's attendance mode doesn't require it.
+    if (!requiresGeo) {
+      setCoords({ skipped: true, not_required: true });
+      return;
+    }
     if (!navigator.geolocation) {
       setCoords({ skipped: true });
       return;
@@ -388,28 +399,26 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
       () => { if (!cancelled) setCoords({ skipped: true }); },
       { enableHighAccuracy: true, timeout: 8000 },
     );
-    // Hard stop: if it takes longer than 8s, don't block the user.
     const t = setTimeout(() => { if (!cancelled) setCoords((c) => c || { skipped: true }); }, 8500);
     return () => { cancelled = true; clearTimeout(t); };
-  }, []);
+  }, [requiresGeo]);
 
   const submit = async () => {
     setBusy(true); setErr("");
     const payload = {
-      method: skipFacial ? "normal" : "facial",
+      method: requiresFacial && !skipFacial ? "facial" : "normal",
       type: actualMode,
       date: mode === "backdate" ? pickedDate : undefined,
       latitude: coords?.latitude ?? null,
       longitude: coords?.longitude ?? null,
       accuracy: coords?.accuracy ?? null,
-      facial_image: skipFacial ? null : snap,
+      facial_image: requiresFacial && !skipFacial ? snap : null,
       overwrite,
     };
     try {
       await api.post("/attendance/mark", payload);
       onMarked();
     } catch (e) {
-      // Network error → queue offline and acknowledge
       if (!navigator.onLine || e?.code === "ERR_NETWORK") {
         try {
           await enqueue(payload);
@@ -425,7 +434,8 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
     } finally { setBusy(false); }
   };
 
-  const verified = !!snap || skipFacial;
+  // verified = ready to submit. If facial isn't required, no camera step needed.
+  const verified = !requiresFacial || !!snap || skipFacial;
   const titleMap = { check_in: "Check in", check_out: "Check out", backdate: "Mark past date" };
 
   return (
@@ -465,45 +475,51 @@ function AttendanceModal({ mode, maxBack = 30, onClose, onMarked }) {
           </div>
         )}
 
-        {!skipFacial ? (
-          <>
-            <FaceLiveness
-              active={!snap}
-              onPass={({ dataUrl }) => setSnap(dataUrl)}
-              onError={() => setSkipFacial(true)}
-            />
-            {snap && (
-              <div className="flex items-center justify-between bg-green-50 border border-green-100 text-green-800 rounded-md px-3 py-2 text-sm">
-                <span>Liveness verified — ready to mark.</span>
-                <button type="button" className="underline" onClick={() => setSnap(null)} data-testid="redo-liveness">Redo</button>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="aspect-square w-full max-w-xs mx-auto bg-gray-100 rounded-xl border border-gray-200 flex flex-col items-center justify-center text-gray-500">
-            <Camera className="h-10 w-10 mb-2" />
-            <div className="text-sm">Camera unavailable — tap-only mode</div>
-            <button className="mt-2 text-xs underline text-blue-600" onClick={() => setSkipFacial(false)}>Try camera again</button>
-          </div>
+        {/* Facial liveness — ONLY shown when employer enabled it for this employee */}
+        {requiresFacial && (
+          !skipFacial ? (
+            <>
+              <FaceLiveness
+                active={!snap}
+                onPass={({ dataUrl }) => setSnap(dataUrl)}
+                onError={() => setSkipFacial(true)}
+              />
+              {snap && (
+                <div className="flex items-center justify-between bg-green-50 border border-green-100 text-green-800 rounded-md px-3 py-2 text-sm">
+                  <span>Liveness verified — ready to mark.</span>
+                  <button type="button" className="underline" onClick={() => setSnap(null)} data-testid="redo-liveness">Redo</button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="aspect-square w-full max-w-xs mx-auto bg-gray-100 rounded-xl border border-gray-200 flex flex-col items-center justify-center text-gray-500">
+              <Camera className="h-10 w-10 mb-2" />
+              <div className="text-sm">Camera unavailable — tap-only mode</div>
+              <button className="mt-2 text-xs underline text-blue-600" onClick={() => setSkipFacial(false)}>Try camera again</button>
+            </div>
+          )
         )}
 
-        <div className="flex items-center gap-2 text-sm">
-          <MapPin className="h-4 w-4 text-gray-500" />
-          {coords?.latitude ? (
-            <span className="text-gray-700 tabular" data-testid="loc-status">
-              Location captured{" "}
-              <span className="text-gray-400">(±{Math.round(coords.accuracy)}m)</span>
-            </span>
-          ) : coords?.skipped ? (
-            <span className="text-gray-500" data-testid="loc-status">
-              Location not captured — that's OK, you can still mark.
-            </span>
-          ) : (
-            <span className="text-gray-500" data-testid="loc-status">
-              Acquiring location… (optional)
-            </span>
-          )}
-        </div>
+        {/* Location row — only when employer enabled geo capture */}
+        {requiresGeo && (
+          <div className="flex items-center gap-2 text-sm">
+            <MapPin className="h-4 w-4 text-gray-500" />
+            {coords?.latitude ? (
+              <span className="text-gray-700 tabular" data-testid="loc-status">
+                Location captured{" "}
+                <span className="text-gray-400">(±{Math.round(coords.accuracy)}m)</span>
+              </span>
+            ) : coords?.skipped ? (
+              <span className="text-gray-500" data-testid="loc-status">
+                Location not captured — that's OK, you can still mark.
+              </span>
+            ) : (
+              <span className="text-gray-500" data-testid="loc-status">
+                Acquiring location… (optional)
+              </span>
+            )}
+          </div>
+        )}
 
         {err && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">{err}</div>}
       </div>
@@ -788,6 +804,8 @@ function AccountantPayrollRun() {
   };
 
   if (!run) return <Spinner />;
+  const totalGross = items.reduce((s, i) => s + (i.gross_salary || 0), 0);
+  const totalDeduct = items.reduce((s, i) => s + (i.deductions || 0), 0);
   const total = items.reduce((s, i) => s + (i.net_salary || 0), 0);
   const canEdit = run.status === "draft";
   const canDisburse = run.status === "approved" || run.status === "disbursed";
@@ -809,6 +827,24 @@ function AccountantPayrollRun() {
           </div>
         }
       />
+
+      {/* Totals card — gross / deductions / net for whole run */}
+      <Card className="mb-4 !p-4" data-testid="payroll-totals">
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-gray-500">Total gross</div>
+            <div className="text-lg font-semibold text-ink tabular mt-0.5" data-testid="total-gross">₹{fmtINR(totalGross)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-gray-500">Deductions</div>
+            <div className="text-lg font-semibold text-red-700 tabular mt-0.5" data-testid="total-deductions">₹{fmtINR(totalDeduct)}</div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-gray-500">Net payable</div>
+            <div className="text-lg font-semibold text-green-700 tabular mt-0.5" data-testid="total-net">₹{fmtINR(total)}</div>
+          </div>
+        </div>
+      </Card>
 
       {/* Mobile-friendly list of items */}
       <div className="space-y-3">

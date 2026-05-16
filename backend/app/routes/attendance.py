@@ -208,5 +208,34 @@ async def locked_months(user: dict = Depends(require_role("employee"))):
 
 @router.get("/config")
 async def attendance_config(user: dict = Depends(require_role("employee"))):
-    """Tells the employee app how far they can backdate."""
-    return {"max_backdate_days": await _max_backdate_days()}
+    """Returns effective attendance requirements for THIS employee.
+
+    Config IDs (legacy enumeration):
+      1 = Tap only
+      2 = Tap + Geo location (capture)
+      3 = Tap + Geo fence (enforced)
+      4 = Tap + Both
+      5 = Facial
+      6 = Facial + Geo location
+      7 = Facial + Geo fence
+      8 = Facial + Both
+    """
+    tenant = await db.tenants.find_one({"_id": user["tenant_id"]}) or {}
+    att = (tenant.get("settings") or {}).get("attendance") or {}
+    geo_cfg = att.get("geo_fence") or {}
+
+    # Per-employee override falls back to tenant default.
+    emp = await db.employees.find_one({"user_id": user["_id"]}) or {}
+    config_id = int(emp.get("attendance_config_id") or att.get("default_config_id") or 1)
+
+    requires_facial = config_id in (5, 6, 7, 8)
+    requires_geo = config_id in (2, 3, 4, 6, 7, 8)
+    geo_fence_enforced = config_id in (3, 4, 7, 8) and bool(geo_cfg.get("enabled"))
+
+    return {
+        "max_backdate_days": await _max_backdate_days(),
+        "config_id": config_id,
+        "requires_facial": requires_facial,
+        "requires_geo": requires_geo,
+        "geo_fence_enforced": geo_fence_enforced,
+    }

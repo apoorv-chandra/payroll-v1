@@ -88,8 +88,8 @@ export function Empty({ icon: Icon, title, hint, action }) {
 export function Modal({ open, onClose, title, children, footer }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 fade-in" onClick={onClose} data-testid="modal-overlay">
-      <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-xl border border-gray-200 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 fade-in pb-bottom-nav sm:pb-0" onClick={onClose} data-testid="modal-overlay">
+      <div className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-xl border border-gray-200 max-h-[85vh] sm:max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-semibold text-ink">{title}</h3>
           <button data-testid="modal-close" onClick={onClose} className="text-gray-500 hover:text-ink h-9 w-9 rounded-md hover:bg-gray-100">×</button>

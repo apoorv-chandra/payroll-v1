@@ -601,10 +601,6 @@ function PayrollRun() {
     });
     load();
   };
-  const submit = async () => {
-    await api.post(`/payroll/runs/${runId}/submit`, {});
-    load();
-  };
   const removeRun = async () => {
     const ok = await confirm({
       kind: "type",
@@ -646,7 +642,6 @@ function PayrollRun() {
         subtitle={`${items.length} employees • ${run.working_days}-day basis • Total ₹${fmtINR(total)}`}
         action={
           <div className="flex flex-wrap gap-2">
-            {run.status === "draft" && <Button variant="secondary" onClick={submit} data-testid="submit-run"><Send className="h-4 w-4" />Submit for approval</Button>}
             {(run.status === "draft" || run.status === "pending_approval") && <>
               <Button variant="danger" onClick={() => approve("rejected")} data-testid="reject-run">Reject</Button>
               <Button onClick={() => approve("approved")} data-testid="approve-run"><Check className="h-4 w-4" />Approve</Button>
@@ -714,6 +709,19 @@ function PayrollRun() {
                 </tr>
               ))}
             </tbody>
+            <tfoot className="bg-gray-50 font-semibold text-ink" data-testid="payroll-totals">
+              <tr className="border-t-2 border-gray-200">
+                <td className="py-3 px-4" colSpan={2}>Totals ({items.length} employees)</td>
+                <td className="py-3 px-4 tabular">{items.reduce((s, i) => s + (i.present_days || 0), 0)}</td>
+                <td className="py-3 px-4 tabular">{items.reduce((s, i) => s + (i.paid_leave_days || 0), 0).toFixed(1)}</td>
+                <td className="py-3 px-4 tabular">{items.reduce((s, i) => s + (i.payable_days || 0), 0).toFixed(1)}</td>
+                <td className="py-3 px-4 tabular" data-testid="total-gross">₹{fmtINR(items.reduce((s, i) => s + (i.gross_salary || 0), 0))}</td>
+                <td className="py-3 px-4 tabular text-red-700" data-testid="total-deductions">₹{fmtINR(items.reduce((s, i) => s + (i.deductions || 0), 0))}</td>
+                <td className="py-3 px-4 tabular text-green-700" data-testid="total-net">₹{fmtINR(total)}</td>
+                <td className="py-3 px-4"></td>
+                <td className="py-3 px-4"></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </Card>
