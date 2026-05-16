@@ -60,6 +60,8 @@ function Employers() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  const [createdCode, setCreatedCode] = useState(null);
+
   const load = async () => {
     setList(null);
     try { const { data } = await api.get("/admin/employers"); setList(data); } catch { setList([]); }
@@ -70,8 +72,9 @@ function Employers() {
     e.preventDefault();
     setBusy(true); setErr("");
     try {
-      await api.post("/admin/employers", form);
+      const { data } = await api.post("/admin/employers", form);
       setOpen(false);
+      setCreatedCode({ code: data.signup_code, name: form.name });
       setForm({ name: "", admin_email: "", admin_password: "", admin_name: "", phone: "", address: "" });
       load();
     } catch (e2) { setErr(fmtErr(e2)); } finally { setBusy(false); }
@@ -109,6 +112,12 @@ function Employers() {
                 <div><div className="text-xs text-gray-500">Employees</div><div className="font-medium tabular">{t.employee_count}</div></div>
                 <div><div className="text-xs text-gray-500">Onboarded</div><div className="font-medium">{fmtDate(t.created_at)}</div></div>
               </div>
+              {t.signup_code && (
+                <div className="mt-3 px-3 py-2 bg-gray-50 border border-dashed border-gray-300 rounded-md">
+                  <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">Invite code (immutable)</div>
+                  <div className="font-mono text-lg tracking-[0.2em] text-ink select-all" data-testid={`invite-code-${t.id}`}>{t.signup_code}</div>
+                </div>
+              )}
               <div className="mt-4 flex gap-2 justify-end">
                 <Button variant="danger" onClick={() => del(t.id)} data-testid={`delete-employer-${t.id}`}><Trash2 className="h-4 w-4" />Delete</Button>
               </div>
@@ -141,6 +150,27 @@ function Employers() {
           </div>
           {err && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">{err}</div>}
         </form>
+      </Modal>
+
+      {/* Post-creation: show the auto-allotted invite code prominently. */}
+      <Modal
+        open={!!createdCode}
+        onClose={() => setCreatedCode(null)}
+        title="Employer onboarded"
+        footer={<Button onClick={() => setCreatedCode(null)} data-testid="close-created-code">Done</Button>}
+      >
+        {createdCode && (
+          <div className="text-center" data-testid="created-employer-code">
+            <p className="text-sm text-gray-600 mb-3">
+              <strong>{createdCode.name}</strong> can now invite employees with this code.
+              It cannot be changed — share it with them privately.
+            </p>
+            <div className="bg-gray-50 border border-dashed border-gray-300 rounded-md px-4 py-5 font-mono text-3xl tracking-[0.35em] text-ink select-all">
+              {createdCode.code}
+            </div>
+            <p className="text-xs text-gray-400 mt-3">Treat this like a password.</p>
+          </div>
+        )}
       </Modal>
     </div>
   );

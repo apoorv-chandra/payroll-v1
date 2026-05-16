@@ -10,7 +10,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import configure_logging, settings
 from .db import ensure_indexes
 from .scheduler import start_scheduler, stop_scheduler
-from .services.seed import seed_super_admin, seed_platform_settings
+from .services.seed import seed_super_admin, seed_platform_settings, backfill_signup_codes
+from .services.migrate import migrate_per_tenant_collections
 from .utils import now_utc
 
 from .routes import auth as auth_routes
@@ -28,6 +29,8 @@ async def lifespan(app: FastAPI):
     await ensure_indexes()
     await seed_super_admin()
     await seed_platform_settings()
+    await backfill_signup_codes()
+    await migrate_per_tenant_collections()
     start_scheduler()
     try:
         yield

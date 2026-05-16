@@ -18,7 +18,7 @@ from datetime import date, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .db import db
+from .db import db, tenant_db
 from .utils import gen_id, now_utc
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,8 @@ async def monthly_payroll_auto_draft() -> None:
     logger.info("[cron] payroll auto-draft for %s/%s", target_month, target_year)
 
     async for tenant in db.tenants.find({"active": True}):
-        existing = await db.payroll_runs.find_one(
+        tdb = tenant_db(tenant["_id"])
+        existing = await tdb.payroll_runs.find_one(
             {"tenant_id": tenant["_id"], "month": target_month, "year": target_year}
         )
         if existing:
@@ -49,7 +50,7 @@ async def monthly_payroll_auto_draft() -> None:
             .get("working_days_per_month", 26)
         )
         run_id = gen_id()
-        await db.payroll_runs.insert_one(
+        await tdb.payroll_runs.insert_one(
             {
                 "_id": run_id,
                 "tenant_id": tenant["_id"],
@@ -64,8 +65,8 @@ async def monthly_payroll_auto_draft() -> None:
         )
         start, end = _month_dates(target_year, target_month)
         items = []
-        async for emp in db.employees.find({"tenant_id": tenant["_id"], "active": True}):
-            att = await db.attendance.count_documents(
+        async for emp in tdb.employees.find({"tenant_id": tenant["_id"], "active": True}):
+            att = await tdb.attendance.count_documents(
                 {
                     "tenant_id": tenant["_id"],
                     "employee_id": emp["_id"],
@@ -74,7 +75,7 @@ async def monthly_payroll_auto_draft() -> None:
                 }
             )
             paid_leaves = 0.0
-            async for la in db.leave_applications.find(
+            async for la in tdb.leave_applications.find(
                 {
                     "tenant_id": tenant["_id"],
                     "employee_id": emp["_id"],
@@ -118,8 +119,8 @@ async def monthly_payroll_auto_draft() -> None:
                 }
             )
         if items:
-            await db.payroll_items.insert_many(items)
-        await db.audit_logs.insert_one(
+            await tdb.payroll_items.insert_many(items)
+        await tdb.audit_logs.insert_one(
             {
                 "_id": gen_id(),
                 "tenant_id": tenant["_id"],
@@ -141,36 +142,37 @@ async def monthly_payroll_auto_draft() -> None:
 async def process_erasure_requests() -> None:
     """Hard-delete users whose erasure request has aged past the notice period."""
     now = now_utc()
-    async for req in db.erasure_requests.find({"status": "pending"}):
-        if req["scheduled_for"].replace(tzinfo=None) > now.replace(tzinfo=None):
-            continue
-        user_id = req["user_id"]
-        employee_id = req.get("employee_id")
-        # Hard delete user + linked records. Audit kept (anonymised actor).
-        await db.users.delete_one({"_id": user_id})
-        await db.user_consents.delete_many({"user_id": user_id})
-        if employee_id:
-            await db.employees.delete_one({"_id": employee_id})
-            await db.attendance.delete_many({"employee_id": employee_id})
-            await db.leave_applications.delete_many({"employee_id": employee_id})
-            await db.leave_balances.delete_many({"employee_id": employee_id})
-            await db.payroll_items.delete_many({"employee_id": employee_id})
-        await db.erasure_requests.update_one(
-            {"_id": req["_id"]},
-            {"$set": {"status": "completed", "completed_at": now}},
-        )
-        await db.audit_logs.insert_one(
-            {
-                "_id": gen_id(),
-                "tenant_id": req.get("tenant_id"),
-                "actor_id": "system",
-                "action": "privacy.erasure_complete",
-                "target": user_id,
-                "meta": {"request_id": req["_id"]},
-                "created_at": now,
-            }
-        )
-        logger.info("[cron] erased user=%s employee=%s", user_id, employee_id)
+    async for tenant in db.tenants.find({}):
+        tdb = tenant_db(tenant["_id"])
+        async for req in tdb.erasure_requests.find({"status": "pending"}):
+            if req["scheduled_for"].replace(tzinfo=None) > now.replace(tzinfo=None):
+                continue
+            user_id = req["user_id"]
+            employee_id = req.get("employee_id")
+            await db.users.delete_one({"_id": user_id})
+            await tdb.user_consents.delete_many({"user_id": user_id})
+            if employee_id:
+                await tdb.employees.delete_one({"_id": employee_id})
+                await tdb.attendance.delete_many({"employee_id": employee_id})
+                await tdb.leave_applications.delete_many({"employee_id": employee_id})
+                await tdb.leave_balances.delete_many({"employee_id": employee_id})
+                await tdb.payroll_items.delete_many({"employee_id": employee_id})
+            await tdb.erasure_requests.update_one(
+                {"_id": req["_id"]},
+                {"$set": {"status": "completed", "completed_at": now}},
+            )
+            await tdb.audit_logs.insert_one(
+                {
+                    "_id": gen_id(),
+                    "tenant_id": tenant["_id"],
+                    "actor_id": "system",
+                    "action": "privacy.erasure_complete",
+                    "target": user_id,
+                    "meta": {"request_id": req["_id"]},
+                    "created_at": now,
+                }
+            )
+            logger.info("[cron] erased user=%s employee=%s", user_id, employee_id)
 
 
 def start_scheduler() -> None:

@@ -6,14 +6,13 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Response, HTTPException, Depends
 
-from ..db import db
+from ..db import db, tenant_db
 from ..deps import get_current_user
 from ..schemas import (
     LoginRequest,
     TokenResponse,
     CaptchaIssue,
     SignupRequest,
-    EmployerPublic,
 )
 from ..security import (
     create_access_token,
@@ -85,18 +84,11 @@ async def login(payload: LoginRequest, response: Response):
 
 
 # ---------- Public employee self-serve onboarding (SaaS distribution) ----------
-@router.get("/employers", response_model=list[EmployerPublic])
-async def public_employers():
-    """Public list of employer workspaces a new employee can request to join."""
-    out: list[EmployerPublic] = []
-    async for t in db.tenants.find({}).sort("name", 1):
-        out.append(EmployerPublic(id=t["_id"], name=t.get("name") or "—"))
-    return out
-
-
 @router.post("/signup")
 async def signup(payload: SignupRequest):
-    """Public route — creates a 'pending_approval' employee under the chosen tenant.
+    """Public route — creates a 'pending_approval' employee using an employer
+    invite code. The employer issues this 8-char code from their Settings page;
+    sharing it is what gates access to the platform (no public list of clients).
 
     The user account is created with `disabled=True`, so login is blocked
     until the employer approves the request from their dashboard.
@@ -108,9 +100,12 @@ async def signup(payload: SignupRequest):
         )
     await _consume_captcha(payload.captcha_token, payload.captcha_answer)
 
-    tenant = await db.tenants.find_one({"_id": payload.tenant_id})
+    code = (payload.signup_code or "").upper().replace(" ", "").replace("-", "").strip()
+    if len(code) < 6:
+        raise HTTPException(status_code=400, detail="Invite code looks too short.")
+    tenant = await db.tenants.find_one({"signup_code": code, "active": True})
     if not tenant:
-        raise HTTPException(status_code=404, detail="Selected employer not found")
+        raise HTTPException(status_code=404, detail="Invite code not recognised. Please check with your employer.")
 
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
@@ -138,7 +133,7 @@ async def signup(payload: SignupRequest):
         "disabled": True,                    # ← blocks login until approval
         "created_at": ts,
     })
-    await db.employees.insert_one({
+    await tenant_db(tenant["_id"]).employees.insert_one({
         "_id": emp_id,
         "tenant_id": tenant["_id"],
         "user_id": user_id,

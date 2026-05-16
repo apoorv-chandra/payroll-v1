@@ -28,7 +28,7 @@ class TokenResponse(BaseModel):
 
 class SignupRequest(BaseModel):
     """Public, employee self-serve onboarding (SaaS distribution)."""
-    tenant_id: str
+    signup_code: str = Field(min_length=6, max_length=16)
     name: str
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)

@@ -6,7 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..db import db
+from ..db import db, tenant_db
 from ..deps import get_current_user, require_employer_or_admin, require_role
 from ..schemas import (
     CreateEmployeeRequest,
@@ -36,6 +36,7 @@ async def get_tenant(tenant_id: str) -> dict:
 
 
 async def reset_leave_balances(tenant_id: str, employee_id: str, joining_date: str | None = None):
+    tdb = tenant_db(tenant_id)
     t = await get_tenant(tenant_id)
     leave_types = t.get("settings", {}).get("leave_types", default_leave_types())
     today = date.today()
@@ -57,7 +58,7 @@ async def reset_leave_balances(tenant_id: str, employee_id: str, joining_date: s
         )
     for lt in leave_types:
         prorated = round((lt["annual_quota"] * months_remaining) / 12.0, 2)
-        await db.leave_balances.update_one(
+        await tdb.leave_balances.update_one(
             {"tenant_id": tenant_id, "employee_id": employee_id, "leave_type": lt["code"]},
             {"$set": {
                 "tenant_id": tenant_id,
@@ -81,6 +82,7 @@ async def get_settings(user: dict = Depends(require_employer_or_admin)):
     return {
         "id": t["_id"],
         "name": t["name"],
+        "signup_code": t.get("signup_code"),
         "settings": t.get("settings", {}),
         "address": t.get("address"),
         "phone": t.get("phone"),
@@ -110,10 +112,11 @@ async def update_settings(req: TenantSettingsUpdate, user: dict = Depends(requir
 async def create_employee(
     req: CreateEmployeeRequest, user: dict = Depends(require_role("employer"))
 ):
+    tdb = tenant_db(user["tenant_id"])
     email = req.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already in use")
-    if await db.employees.find_one({"tenant_id": user["tenant_id"], "emp_code": req.emp_code}):
+    if await tdb.employees.find_one({"tenant_id": user["tenant_id"], "emp_code": req.emp_code}):
         raise HTTPException(status_code=400, detail="Employee code already exists")
     emp_id = gen_id()
     user_id = gen_id()
@@ -129,7 +132,7 @@ async def create_employee(
         "phone": req.phone,
         "created_at": now_utc(),
     })
-    await db.employees.insert_one({
+    await tdb.employees.insert_one({
         "_id": emp_id,
         "tenant_id": user["tenant_id"],
         "user_id": user_id,
@@ -165,10 +168,11 @@ async def create_employee(
 
 @router.get("/employees")
 async def list_employees(user: dict = Depends(require_employer_or_admin)):
+    tdb = tenant_db(user["tenant_id"])
     if user["role"] == "super_admin":
         raise HTTPException(status_code=400, detail="Use tenant scope")
     out = []
-    async for e in db.employees.find({"tenant_id": user["tenant_id"]}).sort("emp_code", 1):
+    async for e in tdb.employees.find({"tenant_id": user["tenant_id"]}).sort("emp_code", 1):
         # Hide pending self-signups from the main employee list — they live
         # in their own "Pending signups" section to be approved or rejected.
         if e.get("signup_status") == "pending":
@@ -180,9 +184,10 @@ async def list_employees(user: dict = Depends(require_employer_or_admin)):
 # ---------- Pending self-signups (Employer approval workflow) ----------
 @router.get("/employees/pending")
 async def list_pending_signups(user: dict = Depends(require_role("employer"))):
+    tdb = tenant_db(user["tenant_id"])
     out = []
     async for e in (
-        db.employees.find({"tenant_id": user["tenant_id"], "signup_status": "pending"})
+        tdb.employees.find({"tenant_id": user["tenant_id"], "signup_status": "pending"})
         .sort("created_at", -1)
     ):
         out.append(strip_id(e))
@@ -197,7 +202,8 @@ async def approve_signup(
 ):
     """Approve a pending signup — fills in the employer-managed fields
     (emp_code, salary, designation, etc.) and activates the account."""
-    e = await db.employees.find_one({
+    tdb = tenant_db(user["tenant_id"])
+    e = await tdb.employees.find_one({
         "_id": employee_id,
         "tenant_id": user["tenant_id"],
         "signup_status": "pending",
@@ -207,7 +213,7 @@ async def approve_signup(
 
     # Validate emp_code uniqueness within tenant.
     if req.emp_code:
-        clash = await db.employees.find_one({
+        clash = await tdb.employees.find_one({
             "tenant_id": user["tenant_id"],
             "emp_code": req.emp_code,
             "_id": {"$ne": employee_id},
@@ -231,7 +237,7 @@ async def approve_signup(
     if req.elevated_roles is not None:
         upd["elevated_roles"] = req.elevated_roles
 
-    await db.employees.update_one({"_id": employee_id}, {"$set": upd})
+    await tdb.employees.update_one({"_id": employee_id}, {"$set": upd})
     user_upd = {"disabled": False}
     if req.elevated_roles is not None:
         user_upd["elevated_roles"] = req.elevated_roles
@@ -268,14 +274,15 @@ async def reject_signup(
     user: dict = Depends(require_role("employer")),
 ):
     """Reject a pending signup — purges the employee + user record entirely."""
-    e = await db.employees.find_one({
+    tdb = tenant_db(user["tenant_id"])
+    e = await tdb.employees.find_one({
         "_id": employee_id,
         "tenant_id": user["tenant_id"],
         "signup_status": "pending",
     })
     if not e:
         raise HTTPException(status_code=404, detail="Pending signup not found")
-    await db.employees.delete_one({"_id": employee_id})
+    await tdb.employees.delete_one({"_id": employee_id})
     await db.users.delete_one({"_id": e["user_id"]})
     await audit(
         user["tenant_id"], user["_id"], "employee.signup.reject", employee_id,
@@ -286,7 +293,8 @@ async def reject_signup(
 
 @router.get("/employees/{employee_id}")
 async def get_employee(employee_id: str, user: dict = Depends(get_current_user)):
-    e = await db.employees.find_one({"_id": employee_id})
+    tdb = tenant_db(user["tenant_id"])
+    e = await tdb.employees.find_one({"_id": employee_id})
     if not e:
         raise HTTPException(status_code=404, detail="Not found")
     if user["role"] != "super_admin" and e["tenant_id"] != user.get("tenant_id"):
@@ -300,12 +308,13 @@ async def update_employee(
     req: UpdateEmployeeRequest,
     user: dict = Depends(require_role("employer")),
 ):
-    e = await db.employees.find_one({"_id": employee_id, "tenant_id": user["tenant_id"]})
+    tdb = tenant_db(user["tenant_id"])
+    e = await tdb.employees.find_one({"_id": employee_id, "tenant_id": user["tenant_id"]})
     if not e:
         raise HTTPException(status_code=404, detail="Not found")
     upd = {k: v for k, v in req.model_dump(exclude_unset=True).items() if v is not None}
     if upd:
-        await db.employees.update_one({"_id": employee_id}, {"$set": upd})
+        await tdb.employees.update_one({"_id": employee_id}, {"$set": upd})
         if "name" in upd or "elevated_roles" in upd or "phone" in upd:
             user_upd = {}
             if "name" in upd:
@@ -324,13 +333,14 @@ async def update_employee(
 async def delete_employee(
     employee_id: str, user: dict = Depends(require_role("employer"))
 ):
-    e = await db.employees.find_one({"_id": employee_id, "tenant_id": user["tenant_id"]})
+    tdb = tenant_db(user["tenant_id"])
+    e = await tdb.employees.find_one({"_id": employee_id, "tenant_id": user["tenant_id"]})
     if not e:
         raise HTTPException(status_code=404, detail="Not found")
-    await db.employees.delete_one({"_id": employee_id})
+    await tdb.employees.delete_one({"_id": employee_id})
     await db.users.delete_one({"_id": e["user_id"]})
-    await db.attendance.delete_many({"employee_id": employee_id})
-    await db.leave_applications.delete_many({"employee_id": employee_id})
-    await db.leave_balances.delete_many({"employee_id": employee_id})
+    await tdb.attendance.delete_many({"employee_id": employee_id})
+    await tdb.leave_applications.delete_many({"employee_id": employee_id})
+    await tdb.leave_balances.delete_many({"employee_id": employee_id})
     await audit(user["tenant_id"], user["_id"], "employee.delete", employee_id)
     return {"ok": True}

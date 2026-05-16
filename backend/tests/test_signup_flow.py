@@ -34,17 +34,27 @@ def _hdr(t):
 state = {}
 
 
-def test_001_employers_public_no_auth():
+def test_001_admin_returns_signup_code():
+    """The legacy public /auth/employers endpoint was removed (employer list is no
+    longer public). Instead, the test pulls the signup_code via super-admin so
+    downstream signup tests can use it."""
     r = requests.get(f"{API}/auth/employers")
-    assert r.status_code == 200, r.text
-    arr = r.json()
-    assert isinstance(arr, list) and len(arr) >= 1
-    assert "id" in arr[0] and "name" in arr[0]
-    # Pick NoraTech tenant — must exist for fixed employer login
+    assert r.status_code == 404, f"endpoint should be removed; got {r.status_code}"
+
+    # Login as super admin to fetch the NoraTech tenant's signup_code
+    lr = _login(ADMIN_EMAIL, ADMIN_PASSWORD)
+    assert lr.status_code == 200, lr.text
+    admin_tok = lr.json()["access_token"]
+    er = requests.get(f"{API}/admin/employers", headers=_hdr(admin_tok))
+    assert er.status_code == 200, er.text
+    arr = er.json()
     nora = [t for t in arr if "noratech" in t["name"].lower() or "nora" in t["name"].lower()]
     assert nora, f"NoraTech tenant not found in {[t['name'] for t in arr]}"
+    # Use the employer-owned tenant so subsequent employer-side tests align
     state["tenant_id"] = nora[0]["id"]
+    state["signup_code"] = nora[0]["signup_code"]
     state["tenant_name"] = nora[0]["name"]
+    assert state["signup_code"], "signup_code missing on NoraTech tenant"
 
 
 def test_002_employer_login():
@@ -57,6 +67,10 @@ def test_002_employer_login():
     # The tenant_id from signup employers list should match the employer's tenant
     # If different (multiple Nora tenants exist from prev tests), use the employer's tenant_id
     state["tenant_id"] = d["user"]["tenant_id"]
+    # Get signup_code from tenant settings (works for employer)
+    sr = requests.get(f"{API}/tenant/settings", headers=_hdr(state["employer_token"]))
+    if sr.status_code == 200:
+        state["signup_code"] = sr.json().get("signup_code", state.get("signup_code"))
 
 
 # ---------- Signup validations ----------
@@ -64,7 +78,7 @@ def test_003_signup_consent_false_returns_400():
     tok, ans = _captcha()
     suffix = uuid.uuid4().hex[:6]
     r = requests.post(f"{API}/auth/signup", json={
-        "tenant_id": state["tenant_id"],
+        "signup_code": state["signup_code"],
         "name": "TEST Consent False",
         "email": f"TEST_consent_{suffix}@testmail.com",
         "password": "TestPass1!",
@@ -78,7 +92,7 @@ def test_003_signup_consent_false_returns_400():
 def test_004_signup_missing_captcha_returns_400():
     suffix = uuid.uuid4().hex[:6]
     r = requests.post(f"{API}/auth/signup", json={
-        "tenant_id": state["tenant_id"],
+        "signup_code": state["signup_code"],
         "name": "TEST No Captcha",
         "email": f"TEST_nocap_{suffix}@testmail.com",
         "password": "TestPass1!",
@@ -88,11 +102,11 @@ def test_004_signup_missing_captcha_returns_400():
     assert "captcha" in r.text.lower()
 
 
-def test_005_signup_invalid_tenant_returns_404():
+def test_005_signup_invalid_code_returns_404():
     tok, ans = _captcha()
     suffix = uuid.uuid4().hex[:6]
     r = requests.post(f"{API}/auth/signup", json={
-        "tenant_id": "NONEXISTENT_TENANT_XYZ",
+        "signup_code": "ZZZZZZZZ",
         "name": "TEST Bad Tenant",
         "email": f"TEST_badt_{suffix}@testmail.com",
         "password": "TestPass1!",
@@ -108,7 +122,7 @@ def test_006_signup_success_creates_pending():
     email = f"TEST_signup_{suffix}@testmail.com"
     password = "TestPass1!"
     r = requests.post(f"{API}/auth/signup", json={
-        "tenant_id": state["tenant_id"],
+        "signup_code": state["signup_code"],
         "name": "TEST Pending User",
         "email": email,
         "password": password,
@@ -134,7 +148,7 @@ def test_007_login_pending_returns_403():
 def test_008_signup_duplicate_email_returns_400():
     tok, ans = _captcha()
     r = requests.post(f"{API}/auth/signup", json={
-        "tenant_id": state["tenant_id"],
+        "signup_code": state["signup_code"],
         "name": "TEST Dup",
         "email": state["pending_email"],
         "password": "OtherPass1!",
@@ -214,7 +228,7 @@ def test_015_reject_signup_purges_user():
     email = f"TEST_reject_{suffix}@testmail.com"
     pwd = "RejPass1!"
     r = requests.post(f"{API}/auth/signup", json={
-        "tenant_id": state["tenant_id"],
+        "signup_code": state["signup_code"],
         "name": "TEST Reject User",
         "email": email, "password": pwd,
         "consent": True,
@@ -243,7 +257,7 @@ def test_016_emp_code_clash_on_approve_returns_400():
     suffix = uuid.uuid4().hex[:6]
     email = f"TEST_clash_{suffix}@testmail.com"
     r = requests.post(f"{API}/auth/signup", json={
-        "tenant_id": state["tenant_id"],
+        "signup_code": state["signup_code"],
         "name": "TEST Clash",
         "email": email, "password": "ClashPass1!",
         "consent": True,

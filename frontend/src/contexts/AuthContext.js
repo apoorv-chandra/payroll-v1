@@ -5,18 +5,37 @@ import { clearAuthBlock } from "../lib/offlineQueue";
 const AuthCtx = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(undefined);
+  // Hydrate from localStorage immediately so the app renders without waiting
+  // for a network round-trip. /auth/me is then validated in the background;
+  // a 401 will log out gracefully.
+  const cachedUser = (() => {
+    try {
+      const raw = localStorage.getItem("auth_user");
+      const tok = localStorage.getItem("access_token");
+      if (raw && tok) return JSON.parse(raw);
+    } catch { /* noop */ }
+    return undefined;
+  })();
+  const [user, setUser] = useState(cachedUser);
 
   const fetchMe = useCallback(async () => {
     try {
       const { data } = await api.get("/auth/me");
       setUser(data);
       localStorage.setItem("auth_user", JSON.stringify(data));
-    } catch {
-      setUser(null);
-      localStorage.removeItem("auth_user");
+    } catch (e) {
+      // Only log out on a real auth rejection — not on transient network blips.
+      if (e?.response?.status === 401) {
+        setUser(null);
+        localStorage.removeItem("auth_user");
+        localStorage.removeItem("access_token");
+      } else if (cachedUser === undefined) {
+        // No cache and request failed → safest to show login.
+        setUser(null);
+      }
+      // else keep cachedUser; periodic check will retry.
     }
-  }, []);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { fetchMe(); }, [fetchMe]);
 

@@ -180,9 +180,10 @@ def test_12_cross_tenant_isolation():
     assert r.status_code == 200
     emps = r.json()
     assert all(e["id"] != state["t1_emp_id"] for e in emps)
-    # Direct GET by id should be 403
+    # Direct GET by id should be forbidden — per-tenant DB returns 404 (data
+    # physically doesn't exist in t2's DB); legacy shared-DB returned 403.
     r2 = requests.get(f"{API}/employees/{state['t1_emp_id']}", headers=_hdr(state["t2_emp_token"]))
-    assert r2.status_code == 403
+    assert r2.status_code in (403, 404), r2.text
 
 
 def test_13_login_employee():
@@ -366,7 +367,8 @@ def test_28_slip_employee_own_ok():
 
 def test_29_slip_other_tenant_403():
     r = requests.get(f"{API}/payroll/items/{state['item_id']}/slip", headers=_hdr(state["t2_emp_token"]))
-    assert r.status_code == 403
+    # 403 (legacy) or 404 (per-tenant DB physical isolation) both indicate denial.
+    assert r.status_code in (403, 404), r.text
 
 
 def test_30_slip_other_employee_same_tenant_403():

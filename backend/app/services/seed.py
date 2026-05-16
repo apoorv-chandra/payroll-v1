@@ -6,7 +6,7 @@ import logging
 from ..config import settings
 from ..db import db
 from ..security import hash_password, verify_password
-from ..utils import gen_id, now_utc
+from ..utils import gen_id, gen_signup_code, now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,18 @@ async def seed_platform_settings() -> None:
                 "value": value,
                 "updated_at": now_utc(),
             })
+
+
+async def backfill_signup_codes() -> None:
+    """Allocate a signup_code for any legacy tenant that doesn't have one yet."""
+    cursor = db.tenants.find({"signup_code": {"$in": [None, ""]}})
+    async for t in cursor:
+        for _ in range(8):
+            candidate = gen_signup_code()
+            if not await db.tenants.find_one({"signup_code": candidate}):
+                await db.tenants.update_one({"_id": t["_id"]}, {"$set": {"signup_code": candidate}})
+                logger.info("Backfilled signup code for tenant %s", t.get("name"))
+                break
 
 
 def default_leave_types() -> list:

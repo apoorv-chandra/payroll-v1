@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate, Navigate } from "react-router-dom";
-import { Eye, EyeOff, RefreshCw, Globe, Building2, Check } from "lucide-react";
+import { Link, useNavigate, Navigate, useSearchParams } from "react-router-dom";
+import { Eye, EyeOff, RefreshCw, Globe, KeyRound, Check } from "lucide-react";
 
 import { useAuth } from "../contexts/AuthContext";
 import { useI18n } from "../contexts/I18nContext";
-import { Button, Input, Select, Spinner } from "../components/ui/Primitives";
+import { Button, Input } from "../components/ui/Primitives";
 import PrivacyNotice from "../components/PrivacyNotice";
 import { api, fmtErr } from "../lib/api";
 import { homeFor, FullScreenLoader } from "./Login";
@@ -13,9 +13,12 @@ export default function Signup() {
   const { user } = useAuth();
   const { lang, setLang } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [tenants, setTenants] = useState(null);
-  const [tenantId, setTenantId] = useState("");
+  // Convenience: allow employers to share https://app.../signup?code=NORA4Q7K
+  const initialCode = (searchParams.get("code") || "").toUpperCase();
+
+  const [signupCode, setSignupCode] = useState(initialCode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -36,26 +39,24 @@ export default function Signup() {
     } catch { /* noop */ }
   };
 
-  useEffect(() => {
-    loadCaptcha();
-    api.get("/auth/employers")
-      .then((r) => setTenants(r.data || []))
-      .catch(() => setTenants([]));
-  }, []);
+  useEffect(() => { loadCaptcha(); }, []);
 
   if (user === undefined) return <FullScreenLoader />;
   if (user) return <Navigate to={homeFor(user)} replace />;
 
+  // Sanitise: uppercase, strip spaces/dashes — friendly to phone input.
+  const cleanCode = (signupCode || "").toUpperCase().replace(/[\s-]/g, "");
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setErr("");
-    if (!tenantId) return setErr("Please choose your employer.");
+    if (cleanCode.length < 6) return setErr("Please enter the 8-character invite code from your employer.");
     if (!consent) return setErr("Please accept the Privacy Notice to continue.");
     if (password.length < 6) return setErr("Password must be at least 6 characters.");
     setBusy(true);
     try {
       const { data } = await api.post("/auth/signup", {
-        tenant_id: tenantId,
+        signup_code: cleanCode,
         name: name.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim() || null,
@@ -122,36 +123,32 @@ export default function Signup() {
         <div className="w-full max-w-md fade-in">
           <div className="mb-7 sm:mb-8 text-center">
             <div className="inline-flex h-12 w-12 rounded-xl bg-ink text-white items-center justify-center mb-4">
-              <Building2 className="h-5 w-5" />
+              <KeyRound className="h-5 w-5" />
             </div>
             <h1 className="font-serif text-3xl sm:text-4xl text-ink tracking-tight">Join your workplace</h1>
-            <p className="text-sm text-gray-500 mt-2">Create your employee account — your employer approves it from their dashboard.</p>
+            <p className="text-sm text-gray-500 mt-2">Enter the 8-character invite code your employer shared with you.</p>
           </div>
 
           <form onSubmit={onSubmit} className="space-y-3.5" data-testid="signup-form">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Employer</label>
-              {tenants === null ? (
-                <div className="h-12 rounded-md border border-gray-200 bg-gray-50 flex items-center px-3 text-sm text-gray-500">
-                  <Spinner className="!h-4 !w-4 mr-2" /> Loading employers…
-                </div>
-              ) : tenants.length === 0 ? (
-                <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
-                  No employers are accepting signups yet. Ask your employer to register first.
-                </div>
-              ) : (
-                <Select
-                  required
-                  value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
-                  data-testid="signup-employer"
-                >
-                  <option value="">— Choose your employer —</option>
-                  {tenants.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </Select>
-              )}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Employer invite code</label>
+              <input
+                required
+                type="text"
+                inputMode="text"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                maxLength={12}
+                value={signupCode}
+                onChange={(e) => setSignupCode(e.target.value)}
+                placeholder="e.g. NORA4Q7K"
+                className="h-14 w-full border border-gray-300 rounded-md px-4 text-center font-mono text-2xl tracking-[0.35em] uppercase outline-none bg-white focus:ring-2 focus:ring-[#2563EB] focus:border-transparent"
+                data-testid="signup-code"
+              />
+              <p className="text-xs text-gray-500 mt-1.5">
+                Don't have one? Ask your employer to copy it from their <em>Settings → Invite code</em>.
+              </p>
             </div>
 
             <Input
@@ -270,7 +267,7 @@ export default function Signup() {
             <Button
               type="submit"
               className="w-full"
-              disabled={busy || !tenants || tenants.length === 0}
+              disabled={busy || cleanCode.length < 6}
               data-testid="signup-submit"
             >
               {busy ? "Sending request…" : "Request access"}
@@ -287,7 +284,7 @@ export default function Signup() {
       </div>
 
       <footer className="text-center text-xs text-gray-400 py-4">
-        Payroll & Attendance — DPDP-aware multi-tenant platform
+        <strong className="text-gray-500">PAYROLL</strong> · powered by Noratech Private Limited
       </footer>
 
       <PrivacyNotice open={showPrivacy} onClose={() => setShowPrivacy(false)} />

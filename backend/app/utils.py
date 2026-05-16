@@ -2,12 +2,22 @@
 from __future__ import annotations
 
 import math
+import secrets
 import uuid
 from datetime import datetime, timezone, date
 
 
+# Friendly alphabet — drops 0/O/1/I/L to avoid confusion when read aloud or printed.
+_SIGNUP_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
 def gen_id() -> str:
     return str(uuid.uuid4())
+
+
+def gen_signup_code(length: int = 8) -> str:
+    """8-char unambiguous alphanumeric code for employer invite links."""
+    return "".join(secrets.choice(_SIGNUP_CODE_ALPHABET) for _ in range(length))
 
 
 def now_utc() -> datetime:

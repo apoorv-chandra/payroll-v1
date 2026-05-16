@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ..db import db
+from ..db import tenant_db
 from ..utils import gen_id, now_utc
 
 
@@ -14,7 +14,11 @@ async def audit(
     target: Optional[str] = None,
     meta: Optional[dict] = None,
 ) -> None:
-    await db.audit_logs.insert_one(
+    if not tenant_id:
+        # Super-admin actions before any tenant exists are dropped silently —
+        # they're already covered by structured logs.
+        return
+    await tenant_db(tenant_id).audit_logs.insert_one(
         {
             "_id": gen_id(),
             "tenant_id": tenant_id,

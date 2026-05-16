@@ -132,18 +132,11 @@ export default function Login() {
               </Link>
             </p>
           </form>
-
-          <div className="mt-8 border-t border-gray-100 pt-5">
-            <p className="text-xs uppercase tracking-widest text-gray-500 mb-2">{t("login.demo_creds")}</p>
-            <div className="text-sm text-gray-700">
-              <div><span className="text-gray-500">{t("login.super_admin")}:</span> admin@payroll.app / admin123</div>
-            </div>
-          </div>
         </div>
       </div>
 
       <footer className="text-center text-xs text-gray-400 py-4">
-        Payroll & Attendance — DPDP-aware multi-tenant platform
+        <strong className="text-gray-500">PAYROLL</strong> · powered by Noratech Private Limited
       </footer>
     </div>
   );

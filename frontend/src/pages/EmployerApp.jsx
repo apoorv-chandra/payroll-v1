@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus } from "lucide-react";
+import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound } from "lucide-react";
 import GeofenceMap from "../components/GeofenceMap";
 import useConfirm from "../lib/useConfirm";
 
@@ -745,6 +745,52 @@ function statusTone(s) {
   return "neutral";
 }
 
+function InviteCodeCard({ signupCode }) {
+  const [copied, setCopied] = useState("");
+  if (!signupCode) return null;
+  const link = `${window.location.origin}/signup?code=${signupCode}`;
+  const copy = async (value, label) => {
+    try { await navigator.clipboard.writeText(value); setCopied(label); setTimeout(() => setCopied(""), 1500); }
+    catch { window.prompt("Copy this:", value); }
+  };
+  return (
+    <Card data-testid="invite-code-card" className="border-blue-100">
+      <div className="flex items-start gap-3 mb-3">
+        <KeyRound className="h-5 w-5 text-blue-600 mt-0.5" />
+        <div>
+          <h3 className="font-semibold text-ink">Employee invite code</h3>
+          <p className="text-sm text-gray-500">Share this code privately with new hires. They'll enter it on the sign-up screen — no public list of clients exposed.</p>
+        </div>
+      </div>
+      <div className="bg-gray-50 border border-dashed border-gray-300 rounded-md px-4 py-4 text-center font-mono text-3xl tracking-[0.35em] text-ink select-all" data-testid="invite-code-value">
+        {signupCode}
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => copy(signupCode, "code")}
+          className="h-10 inline-flex items-center justify-center gap-2 rounded-md border border-gray-200 hover:bg-gray-50 text-sm font-medium"
+          data-testid="copy-invite-code"
+        >
+          <Copy className="h-4 w-4" />{copied === "code" ? "Copied!" : "Copy code"}
+        </button>
+        <button
+          type="button"
+          onClick={() => copy(link, "link")}
+          className="h-10 inline-flex items-center justify-center gap-2 rounded-md border border-gray-200 hover:bg-gray-50 text-sm font-medium"
+          data-testid="copy-invite-link"
+        >
+          <Link2 className="h-4 w-4" />{copied === "link" ? "Copied!" : "Copy share link"}
+        </button>
+      </div>
+      <p className="text-xs text-gray-400 mt-3">
+        This code is allotted by Super Admin and cannot be changed. Treat it like a password.
+      </p>
+    </Card>
+  );
+}
+
+
 function SettingsPage() {
   const [t, setT] = useState(null);
   const [err, setErr] = useState("");
@@ -766,6 +812,8 @@ function SettingsPage() {
     <div>
       <PageHeader title="Settings" subtitle={t.name} />
       <div className="space-y-4">
+        <InviteCodeCard signupCode={t.signup_code} />
+
         <Card>
           <h3 className="font-semibold text-ink mb-3">Attendance</h3>
           <div className="grid sm:grid-cols-2 gap-3">

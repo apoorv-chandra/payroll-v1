@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..db import db
+from ..db import db, tenant_db
 from ..deps import require_role
 from ..schemas import CreateEmployerRequest, PlatformSettingsUpdate
 from ..security import hash_password
 from ..services.audit import audit
 from ..services.seed import default_leave_types
-from ..utils import gen_id, now_utc, public_user, today_iso
+from ..utils import gen_id, gen_signup_code, now_utc, public_user, today_iso
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -21,12 +21,25 @@ async def create_employer(
     admin_email = req.admin_email.lower().strip()
     if await db.users.find_one({"email": admin_email}):
         raise HTTPException(status_code=400, detail="Email already in use")
+
+    # Generate an 8-char invite code that's globally unique. Collision space
+    # is 31^8 ≈ 8.5e11; retry loop is theoretical defence in depth.
+    signup_code = ""
+    for _ in range(8):
+        candidate = gen_signup_code()
+        if not await db.tenants.find_one({"signup_code": candidate}):
+            signup_code = candidate
+            break
+    if not signup_code:
+        raise HTTPException(status_code=500, detail="Could not allocate invite code, please retry")
+
     tenant_id = gen_id()
     await db.tenants.insert_one({
         "_id": tenant_id,
         "name": req.name,
         "address": req.address,
         "phone": req.phone,
+        "signup_code": signup_code,
         "created_at": now_utc(),
         "active": True,
         "settings": {
@@ -50,8 +63,8 @@ async def create_employer(
         "tenant_id": tenant_id,
         "created_at": now_utc(),
     })
-    await audit(tenant_id, user["_id"], "tenant.create", tenant_id, {"name": req.name})
-    return {"id": tenant_id, "admin_user_id": employer_user_id}
+    await audit(tenant_id, user["_id"], "tenant.create", tenant_id, {"name": req.name, "signup_code": signup_code})
+    return {"id": tenant_id, "admin_user_id": employer_user_id, "signup_code": signup_code}
 
 
 @router.get("/employers")
@@ -61,7 +74,7 @@ async def list_employers(user: dict = Depends(require_role("super_admin"))):
         admin = await db.users.find_one(
             {"tenant_id": t["_id"], "role": "employer"}, {"password_hash": 0}
         )
-        emp_count = await db.employees.count_documents({"tenant_id": t["_id"]})
+        emp_count = await tenant_db(t["_id"]).employees.count_documents({"tenant_id": t["_id"]})
         t["id"] = t["_id"]
         t["admin"] = public_user(admin)
         t["employee_count"] = emp_count
@@ -71,14 +84,15 @@ async def list_employers(user: dict = Depends(require_role("super_admin"))):
 
 @router.delete("/employers/{tenant_id}")
 async def delete_employer(tenant_id: str, user: dict = Depends(require_role("super_admin"))):
+    tdb = tenant_db(tenant_id)
     await db.tenants.delete_one({"_id": tenant_id})
     await db.users.delete_many({"tenant_id": tenant_id})
-    await db.employees.delete_many({"tenant_id": tenant_id})
-    await db.attendance.delete_many({"tenant_id": tenant_id})
-    await db.leave_applications.delete_many({"tenant_id": tenant_id})
-    await db.leave_balances.delete_many({"tenant_id": tenant_id})
-    await db.payroll_runs.delete_many({"tenant_id": tenant_id})
-    await db.payroll_items.delete_many({"tenant_id": tenant_id})
+    await tdb.employees.delete_many({"tenant_id": tenant_id})
+    await tdb.attendance.delete_many({"tenant_id": tenant_id})
+    await tdb.leave_applications.delete_many({"tenant_id": tenant_id})
+    await tdb.leave_balances.delete_many({"tenant_id": tenant_id})
+    await tdb.payroll_runs.delete_many({"tenant_id": tenant_id})
+    await tdb.payroll_items.delete_many({"tenant_id": tenant_id})
     await audit(None, user["_id"], "tenant.delete", tenant_id)
     return {"ok": True}
 
@@ -86,21 +100,34 @@ async def delete_employer(tenant_id: str, user: dict = Depends(require_role("sup
 @router.get("/audit")
 async def list_audit(user: dict = Depends(require_role("super_admin")), limit: int = 100):
     items = []
-    async for a in db.audit_logs.find().sort("created_at", -1).limit(limit):
-        a["id"] = a["_id"]
-        items.append({k: v for k, v in a.items() if k != "_id"})
-    return items
+    # Aggregate audits across every tenant DB.
+    async for t in db.tenants.find({}):
+        tdb = tenant_db(t["_id"])
+        async for a in tdb.audit_logs.find().sort("created_at", -1).limit(limit):
+            a["id"] = a["_id"]
+            items.append({k: v for k, v in a.items() if k != "_id"})
+    items.sort(key=lambda x: x.get("created_at"), reverse=True)
+    return items[:limit]
 
 
 @router.get("/stats")
 async def admin_stats(user: dict = Depends(require_role("super_admin"))):
+    employees = 0
+    attendance_today = 0
+    active_payrolls = 0
+    today = today_iso()
+    async for t in db.tenants.find({}):
+        tdb = tenant_db(t["_id"])
+        employees += await tdb.employees.count_documents({})
+        attendance_today += await tdb.attendance.count_documents({"date": today})
+        active_payrolls += await tdb.payroll_runs.count_documents(
+            {"status": {"$in": ["draft", "pending_approval", "approved"]}}
+        )
     return {
         "tenants": await db.tenants.count_documents({}),
-        "employees": await db.employees.count_documents({}),
-        "attendance_today": await db.attendance.count_documents({"date": today_iso()}),
-        "active_payrolls": await db.payroll_runs.count_documents(
-            {"status": {"$in": ["draft", "pending_approval", "approved"]}}
-        ),
+        "employees": employees,
+        "attendance_today": attendance_today,
+        "active_payrolls": active_payrolls,
     }
 
 
