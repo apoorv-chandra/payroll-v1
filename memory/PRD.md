@@ -97,6 +97,15 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Tests**: 13/13 offline-queue Playwright assertions PASS (user isolation, backoff math, 401 handling, banner states, IDB cache reset).
 
 ## Implemented (Feb 16, 2026 — v5 / accountant UI + mobile home + optional geo)
+## Implemented (Jun 6, 2026 — v8 / Timezone & UX polish)
+**v8 additions (4 user-reported bug fixes)**
+- **Timezone correctness end-to-end** — Motor client now uses `tz_aware=True`, so every datetime read from MongoDB carries UTC tzinfo and FastAPI serialises with a `+00:00` suffix. Browsers parse this correctly and `fmtTime` / `fmtDate` render in the user's local time. `today_iso()` now derives the date in `Asia/Kolkata` (override via `APP_TIMEZONE` env), closing the day-boundary edge case where a 1 AM IST check-in was binding to the previous UTC day. Helper `app_tz()` added; `attendance.py` and `scheduler.py` updated.
+- **Location permission prompt** — toggling `geo_location` ON from Settings → Privacy (and accepting the initial Consent Gate) now calls `navigator.geolocation.getCurrentPosition()` via the new `/app/frontend/src/lib/permissions.js` helper, which forces the device's OS-level permission dialog. Silent denials no longer slip through; the toggle short-circuits with an inline error if the user blocks.
+- **My check-in locations card** — `MyLocationsCard` now always renders on `/me/privacy` and shows a friendly amber hint (`loc-consent-off-hint`) when location consent is OFF, explaining how to enable it.
+- **Settings gear icon (mobile + desktop)** — Top-bar `Shell.jsx` now renders a Lucide `Settings` gear (`data-testid=settings-button` desktop, `settings-button-mobile` mobile) that role-routes: employees → `/me/privacy`, employers → `/employer/settings`, super_admin → `/admin`.
+- **Tests**: `/app/backend/tests/test_timezone.py` (3 tests) + `/app/backend/tests/test_attendance_timezone_e2e.py` (4 tests). Total backend bug-fix scope: **39/39 green**. Full regression: 107/109 (2 pre-existing localhost-mongo failures unrelated).
+
+
 **v5 additions**
 - **Accountant workflow** now actually visible — accountants (employees with `elevated_roles=['accountant']`) see a 6th bottom-nav tab `Payroll` (`/me/payroll`) with full run list, generate-run, edit-deductions, and submit-for-approval. Backend `GET /api/payroll/runs` was returning 403 to accountants (used `require_employer_or_admin`) — fixed to use `_can_run_payroll`.
 - **Employee Home screen redesigned** per user's mobile sketch — live ticking date+time card, status section ('No data for today yet' OR 'Working since X · Yh Mm' with live timer until checkout), toggle to expand today's past mark-ins, big primary 'Mark In/Out' button at bottom.
