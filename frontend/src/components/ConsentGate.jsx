@@ -5,6 +5,7 @@ import PrivacyNotice from "./PrivacyNotice";
 import { Shield, Check } from "lucide-react";
 import { api, fmtErr } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
+import { requestGeoPermission } from "../lib/permissions";
 
 /**
  * ConsentGate — minimal, professional first-run gate.
@@ -50,6 +51,11 @@ export default function ConsentGate({ children }) {
           whatsapp_email: false,           // per spec — opt-in later in Settings
         },
       });
+      // Fire the OS-level location permission prompt right after the user
+      // accepts. We don't block on the outcome — they can still grant later
+      // from Settings → Privacy. This just removes the silent-deny surprise
+      // when they go to mark attendance for the first time.
+      requestGeoPermission().catch(() => {});
       load();
     } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
   };

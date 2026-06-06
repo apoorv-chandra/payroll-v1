@@ -12,6 +12,7 @@ import { enqueue } from "../lib/offlineQueue";
 import useOnline from "../lib/useOnline";
 import { useAuth } from "../contexts/AuthContext";
 import useConfirm from "../lib/useConfirm";
+import { requestGeoPermission } from "../lib/permissions";
 
 const BASE_NAV = [
   { id: "home", to: "/me", end: true, label: "Home", icon: Home },
@@ -98,6 +99,18 @@ function PrivacyScreen() {
   const update = async (key, value) => {
     setBusy(true); setMsg("");
     try {
+      // When turning location sharing ON, trigger the device OS-level permission
+      // dialog so the browser actually asks the user. Without this, the toggle
+      // can be ON but the browser silently has no permission, and check-ins
+      // would fail to capture location.
+      if (key === "geo_location" && value === true) {
+        const ok = await requestGeoPermission();
+        if (!ok) {
+          setMsg("Location access was blocked or unavailable. Enable it in your browser/device settings to share your location.");
+          setBusy(false);
+          return;
+        }
+      }
       const next = { ...data.consents, [key]: value };
       await api.put("/me/privacy/consents", { consents: next });
       load(); setMsg("Saved.");
@@ -162,7 +175,7 @@ function PrivacyScreen() {
           <Button variant="secondary" onClick={exportData} data-testid="export-data"><Download className="h-4 w-4" />Download</Button>
         </Card>
 
-        <MyLocationsCard />
+        <MyLocationsCard locationConsent={!!c.geo_location} />
 
         <ChangePasswordCard />
 
@@ -189,7 +202,7 @@ function PrivacyScreen() {
   );
 }
 
-function MyLocationsCard() {
+function MyLocationsCard({ locationConsent = true }) {
   const [items, setItems] = useState(null);
   const [pinFor, setPinFor] = useState(null);   // selected row
 
@@ -207,6 +220,11 @@ function MyLocationsCard() {
       <p className="text-sm text-gray-500 mb-3">
         Only days where you allowed location sharing appear here.
       </p>
+      {!locationConsent && (
+        <div className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-3" data-testid="loc-consent-off-hint">
+          Location sharing is currently <b>OFF</b>. Turn the toggle above to <b>Granted</b> to start capturing where you check-in.
+        </div>
+      )}
       {items === null ? <Spinner /> : items.length === 0 ? (
         <div className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-md px-3 py-3 text-center">
           No locations captured yet.

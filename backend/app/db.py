@@ -29,7 +29,11 @@ _client: AsyncIOMotorClient | None = None
 def get_client() -> AsyncIOMotorClient:
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(settings.MONGO_URL)
+        # tz_aware=True ensures datetimes read back from BSON include UTC tzinfo,
+        # so FastAPI's JSON serializer emits ISO strings with a "+00:00" suffix.
+        # Without this, the frontend's `new Date(...)` treats stored UTC times
+        # as the browser's local time, throwing displays off by hours.
+        _client = AsyncIOMotorClient(settings.MONGO_URL, tz_aware=True)
     return _client
 
 

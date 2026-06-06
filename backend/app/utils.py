@@ -2,14 +2,35 @@
 from __future__ import annotations
 
 import math
+import os
 import secrets
 import uuid
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
+
+try:
+    from zoneinfo import ZoneInfo  # py3.9+
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
 
 
 # Friendly alphabet — drops 0/O/1/I/L to avoid confusion when read aloud or printed.
 SIGNUP_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 _SIGNUP_CODE_ALPHABET = SIGNUP_CODE_ALPHABET
+
+
+# Canonical business timezone for attendance / payroll day boundaries.
+# Override with APP_TIMEZONE env if you ever onboard tenants in another region.
+APP_TIMEZONE_NAME = os.environ.get("APP_TIMEZONE", "Asia/Kolkata")
+
+
+def app_tz():
+    if ZoneInfo is not None:
+        try:
+            return ZoneInfo(APP_TIMEZONE_NAME)
+        except Exception:
+            pass
+    # IST fallback if zoneinfo data is missing in the container image.
+    return timezone(timedelta(hours=5, minutes=30))
 
 
 def gen_id() -> str:
@@ -26,7 +47,13 @@ def now_utc() -> datetime:
 
 
 def today_iso() -> str:
-    return date.today().isoformat()
+    """Today's date in the canonical business timezone (Asia/Kolkata by default).
+
+    Avoids using server-local `date.today()` which silently shifts the "work day"
+    boundary when the server is running in a different timezone (e.g. UTC on
+    Render). A 1 AM IST check-in on Feb 15 should belong to Feb 15, not Feb 14.
+    """
+    return datetime.now(app_tz()).date().isoformat()
 
 
 def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:

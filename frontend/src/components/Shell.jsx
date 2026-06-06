@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useI18n } from "../contexts/I18nContext";
-import { LogOut, Globe } from "lucide-react";
+import { LogOut, Globe, Settings as SettingsIcon } from "lucide-react";
 
 export default function Shell({ children, nav }) {
   const { user, logout } = useAuth();
@@ -15,6 +15,17 @@ export default function Shell({ children, nav }) {
   };
 
   const toggleLang = () => setLang(lang === "hi" ? "en" : "hi");
+
+  // The "settings" tab lives at a different path per role.
+  // - employees: /me/privacy (DPDP toggles, location list, password)
+  // - employers / super_admin: /employer/settings or /admin (best-effort)
+  const settingsPath =
+    user?.role === "employee"
+      ? "/me/privacy"
+      : user?.role === "employer"
+      ? "/employer/settings"
+      : "/admin";
+  const goSettings = () => navigate(settingsPath);
 
   return (
     <div className="min-h-screen bg-[#F9FAFB]">
@@ -53,12 +64,18 @@ export default function Shell({ children, nav }) {
               <button data-testid="lang-toggle" onClick={toggleLang} className="h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700" title="Language">
                 <Globe className="h-4 w-4" />
               </button>
+              <button data-testid="settings-button" onClick={goSettings} className="h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700" title="Settings">
+                <SettingsIcon className="h-4 w-4" />
+              </button>
               <button data-testid="logout-button" onClick={onLogout} className="h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700">
                 <LogOut className="h-4 w-4" />
               </button>
             </div>
             <button data-testid="lang-toggle-mobile" onClick={toggleLang} className="sm:hidden h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700">
               <Globe className="h-4 w-4" />
+            </button>
+            <button data-testid="settings-button-mobile" onClick={goSettings} className="sm:hidden h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700" title="Settings" aria-label="Open settings">
+              <SettingsIcon className="h-5 w-5" />
             </button>
             <button data-testid="logout-button-mobile" onClick={onLogout} className="sm:hidden h-10 w-10 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700">
               <LogOut className="h-4 w-4" />

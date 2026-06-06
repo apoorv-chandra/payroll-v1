@@ -13,13 +13,13 @@ Two cron-style jobs run inside the FastAPI process via APScheduler:
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from .db import db, tenant_db
-from .utils import gen_id, now_utc
+from .utils import app_tz, gen_id, now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ scheduler: AsyncIOScheduler | None = None
 
 
 async def monthly_payroll_auto_draft() -> None:
-    today = date.today()
+    today = datetime.now(app_tz()).date()
     last_day_prev = today.replace(day=1) - timedelta(days=1)
     target_month, target_year = last_day_prev.month, last_day_prev.year
     logger.info("[cron] payroll auto-draft for %s/%s", target_month, target_year)

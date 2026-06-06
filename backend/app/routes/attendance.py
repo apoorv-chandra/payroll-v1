@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ..db import db, tenant_db
 from ..deps import get_current_user, require_role
 from ..schemas import MarkAttendanceRequest, AttendanceDeleteRequest
-from ..utils import gen_id, haversine_m, now_utc, today_iso, strip_id
+from ..utils import app_tz, gen_id, haversine_m, now_utc, today_iso, strip_id
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
@@ -50,7 +50,10 @@ async def mark_attendance(
         td = date.fromisoformat(target_date)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid date")
-    today_d = date.today()
+    # Use the business timezone for the "what day is it" check so we don't
+    # reject legitimate late-night IST marks while the UTC server is still on
+    # the previous day.
+    today_d = datetime.now(app_tz()).date()
     if td > today_d:
         raise HTTPException(status_code=400, detail="Cannot mark attendance for a future date")
     max_back = await _max_backdate_days()
@@ -174,7 +177,7 @@ async def attendance_history(
     user: dict = Depends(get_current_user),
 ):
     tdb = tenant_db(user["tenant_id"])
-    today = date.today()
+    today = datetime.now(app_tz()).date()
     m = month or today.month
     y = year or today.year
     start = date(y, m, 1).isoformat()
