@@ -32,7 +32,8 @@ async def get_tenant(tenant_id: str) -> dict:
     t = await db.tenants.find_one({"_id": tenant_id})
     if not t:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    return t
+    # `_id` is a UUID string. Re-pack into a plain dict to keep type-hints honest.
+    return dict(t)
 
 
 async def reset_leave_balances(tenant_id: str, employee_id: str, joining_date: str | None = None):
@@ -124,6 +125,7 @@ async def create_employee(
         "_id": user_id,
         "email": email,
         "password_hash": hash_password(req.password),
+        "initial_password_plain": req.password,  # cleared on first login
         "name": req.name,
         "role": "employee",
         "tenant_id": user["tenant_id"],
@@ -343,4 +345,114 @@ async def delete_employee(
     await tdb.leave_applications.delete_many({"employee_id": employee_id})
     await tdb.leave_balances.delete_many({"employee_id": employee_id})
     await audit(user["tenant_id"], user["_id"], "employee.delete", employee_id)
+    return {"ok": True}
+
+
+
+# ---------- Employee credentials & password reset (employer-only) ----------
+
+def _temp_password() -> str:
+    """8-char readable password — letters + digits, no ambiguous chars."""
+    from ..utils import _SIGNUP_CODE_ALPHABET
+    import secrets
+    return "".join(secrets.choice(_SIGNUP_CODE_ALPHABET) for _ in range(8))
+
+
+@router.get("/employees/{employee_id}/credentials")
+async def employee_credentials(
+    employee_id: str,
+    user: dict = Depends(require_role("employer")),
+):
+    """Returns the employee's email + initial password if they HAVEN'T logged in
+    yet. After first login the initial password is auto-wiped from the DB and
+    only a fresh 'Reset password' will create a new one to share."""
+    tdb = tenant_db(user["tenant_id"])
+    e = await tdb.employees.find_one({"_id": employee_id, "tenant_id": user["tenant_id"]})
+    if not e:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    u = await db.users.find_one({"_id": e["user_id"]}) or {}
+    return {
+        "email": u.get("email"),
+        "initial_password": u.get("initial_password_plain"),
+        "first_login_at": u.get("first_login_at"),
+        "password_changed_at": u.get("password_changed_at"),
+    }
+
+
+@router.post("/employees/{employee_id}/reset-password")
+async def reset_employee_password(
+    employee_id: str,
+    user: dict = Depends(require_role("employer")),
+):
+    """Generates a new temporary password for an employee and stores it
+    visible (plaintext) ONLY until that employee next logs in."""
+    tdb = tenant_db(user["tenant_id"])
+    e = await tdb.employees.find_one({"_id": employee_id, "tenant_id": user["tenant_id"]})
+    if not e:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    pw = _temp_password()
+    await db.users.update_one(
+        {"_id": e["user_id"]},
+        {
+            "$set": {
+                "password_hash": hash_password(pw),
+                "initial_password_plain": pw,
+                "password_reset_at": now_utc(),
+            },
+            "$unset": {"first_login_at": "", "password_changed_at": ""},
+        },
+    )
+    await audit(user["tenant_id"], user["_id"], "employee.password.reset", employee_id)
+    return {"ok": True, "initial_password": pw}
+
+
+# ---------- Self-service password-reset requests (employer approval queue) ----------
+
+@router.get("/employees/password-reset/pending")
+async def list_pending_password_resets(user: dict = Depends(require_role("employer"))):
+    tdb = tenant_db(user["tenant_id"])
+    out = []
+    async for r in tdb.password_reset_requests.find({"status": "pending"}).sort("created_at", -1):
+        r["id"] = r["_id"]
+        # Never expose the hash.
+        out.append({k: v for k, v in r.items() if k not in ("_id", "new_password_hash")})
+    return out
+
+
+@router.post("/employees/password-reset/{req_id}/approve")
+async def approve_password_reset(
+    req_id: str,
+    user: dict = Depends(require_role("employer")),
+):
+    tdb = tenant_db(user["tenant_id"])
+    rec = await tdb.password_reset_requests.find_one({"_id": req_id, "status": "pending"})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Request not found")
+    await db.users.update_one(
+        {"_id": rec["user_id"]},
+        {
+            "$set": {"password_hash": rec["new_password_hash"], "password_reset_at": now_utc()},
+            "$unset": {"initial_password_plain": ""},
+        },
+    )
+    await tdb.password_reset_requests.update_one(
+        {"_id": req_id},
+        {"$set": {"status": "approved", "approved_at": now_utc(), "approved_by": user["_id"]}},
+    )
+    await audit(user["tenant_id"], user["_id"], "employee.password.reset_approved", rec["user_id"])
+    return {"ok": True}
+
+
+@router.post("/employees/password-reset/{req_id}/reject")
+async def reject_password_reset(
+    req_id: str,
+    user: dict = Depends(require_role("employer")),
+):
+    tdb = tenant_db(user["tenant_id"])
+    res = await tdb.password_reset_requests.update_one(
+        {"_id": req_id, "status": "pending"},
+        {"$set": {"status": "rejected", "rejected_at": now_utc(), "rejected_by": user["_id"]}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Request not found")
     return {"ok": True}

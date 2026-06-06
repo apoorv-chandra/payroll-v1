@@ -44,7 +44,7 @@ function Overview() {
         <h3 className="font-semibold text-ink mb-2">How this works</h3>
         <ol className="list-decimal pl-5 text-sm text-gray-700 space-y-1.5">
           <li>Onboard an <b>Employer (tenant)</b> from the Employers page — this creates an isolated workspace.</li>
-          <li>Share the employer admin's email & password with them.</li>
+          <li>Share the employer admin&apos;s email & password with them.</li>
           <li>The employer signs in, configures attendance + leave types, adds employees.</li>
           <li>Employees mark attendance from a phone (PWA), apply leaves, and download salary slips.</li>
         </ol>

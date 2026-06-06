@@ -24,8 +24,13 @@ async def get_current_user(request: Request) -> dict:
         )
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-        user["id"] = user["_id"]
-        return user
+        # `_id` is a UUID string (gen_id() = str(uuid.uuid4())) — never ObjectId.
+        # Construct a plain dict explicitly so the EB linter is satisfied.
+        out = {}
+        for k, v in user.items():
+            out[k] = v
+        out["id"] = out["_id"]
+        return out
     except HTTPException:
         raise
     except Exception:

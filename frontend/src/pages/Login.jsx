@@ -2,9 +2,9 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useI18n } from "../contexts/I18nContext";
-import { Button, Input, Spinner } from "../components/ui/Primitives";
-import { Eye, EyeOff, RefreshCw, Globe } from "lucide-react";
-import { api } from "../lib/api";
+import { Button, Input, Spinner, Modal } from "../components/ui/Primitives";
+import { Eye, EyeOff, RefreshCw, Globe, Mail } from "lucide-react";
+import { api, fmtErr } from "../lib/api";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -17,6 +17,7 @@ export default function Login() {
   const [err, setErr] = useState("");
   const [cap, setCap] = useState(null);
   const [capAns, setCapAns] = useState("");
+  const [showForgot, setShowForgot] = useState(false);
 
   const loadCaptcha = async () => {
     try {
@@ -125,6 +126,17 @@ export default function Login() {
               {busy ? t("common.signing_in") : t("common.sign_in")}
             </Button>
 
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => setShowForgot(true)}
+                className="text-sm text-gray-500 hover:text-blue-600"
+                data-testid="forgot-password-link"
+              >
+                Forgot password?
+              </button>
+            </div>
+
             <p className="text-center text-sm text-gray-500 pt-1">
               New employee?{" "}
               <Link to="/signup" className="text-blue-600 underline" data-testid="login-signup-link">
@@ -135,10 +147,81 @@ export default function Login() {
         </div>
       </div>
 
+      <ForgotPasswordModal open={showForgot} onClose={() => setShowForgot(false)} />
+
       <footer className="text-center text-xs text-gray-400 py-4">
         <strong className="text-gray-500">PAYROLL</strong> · powered by Noratech Private Limited
       </footer>
     </div>
+  );
+}
+
+function ForgotPasswordModal({ open, onClose }) {
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState({ kind: "", text: "" });
+
+  useEffect(() => {
+    if (!open) { setEmail(""); setPw(""); setMsg({ kind: "", text: "" }); }
+  }, [open]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setMsg({ kind: "", text: "" });
+    try {
+      const { data } = await api.post("/auth/forgot-password", { email: email.trim().toLowerCase(), new_password: pw });
+      setMsg({ kind: "ok", text: data?.message || "Request sent. Your employer will approve it." });
+    } catch (e2) { setMsg({ kind: "err", text: fmtErr(e2) }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Reset your password"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+          {msg.kind !== "ok" && (
+            <Button onClick={submit} disabled={busy || !email || pw.length < 6} data-testid="forgot-submit">
+              {busy ? "Sending…" : "Send request"}
+            </Button>
+          )}
+        </>
+      }
+    >
+      <p className="text-sm text-gray-600 mb-3">
+        Enter your email and a new password. Your employer will get a request to approve the change — once they confirm, you can sign in with the new password.
+      </p>
+      <form onSubmit={submit} className="space-y-2.5">
+        <Input
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@company.com"
+          data-testid="forgot-email"
+        />
+        <Input
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={6}
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          placeholder="New password (min 6 chars)"
+          data-testid="forgot-new-password"
+        />
+      </form>
+      {msg.text && (
+        <div className={`mt-3 text-sm rounded-md px-3 py-2 ${msg.kind === "ok" ? "bg-green-50 text-green-800 border border-green-100" : "bg-red-50 text-red-700 border border-red-100"}`}>
+          <Mail className="h-4 w-4 inline-block -mt-px mr-1" />{msg.text}
+        </div>
+      )}
+    </Modal>
   );
 }
 

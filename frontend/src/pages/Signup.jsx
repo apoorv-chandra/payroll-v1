@@ -147,7 +147,7 @@ export default function Signup() {
                 data-testid="signup-code"
               />
               <p className="text-xs text-gray-500 mt-1.5">
-                Don't have one? Ask your employer to copy it from their <em>Settings → Invite code</em>.
+                Don&apos;t have one? Ask your employer to copy it from their <em>Settings → Invite code</em>.
               </p>
             </div>
 

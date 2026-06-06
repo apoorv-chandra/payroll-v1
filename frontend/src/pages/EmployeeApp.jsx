@@ -7,6 +7,7 @@ import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollTex
 import FaceLiveness from "../components/FaceLiveness";
 import ConsentGate from "../components/ConsentGate";
 import PrivacyNotice from "../components/PrivacyNotice";
+import PinMap from "../components/PinMap";
 import { enqueue } from "../lib/offlineQueue";
 import useOnline from "../lib/useOnline";
 import { useAuth } from "../contexts/AuthContext";
@@ -77,11 +78,21 @@ function OfflineBanner() {
 
 function PrivacyScreen() {
   const [data, setData] = useState(null);
+  const [requiresFacial, setRequiresFacial] = useState(false);
   const [showNotice, setShowNotice] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const load = async () => { try { setData((await api.get("/me/privacy")).data); } catch { setData({}); } };
+  const load = async () => {
+    try {
+      const [p, cfg] = await Promise.all([
+        api.get("/me/privacy"),
+        api.get("/attendance/config").catch(() => ({ data: { requires_facial: false } })),
+      ]);
+      setData(p.data);
+      setRequiresFacial(!!cfg.data?.requires_facial);
+    } catch { setData({}); }
+  };
   useEffect(() => { load(); }, []);
 
   const update = async (key, value) => {
@@ -123,7 +134,7 @@ function PrivacyScreen() {
           <h3 className="font-semibold text-ink mb-3">Consents</h3>
           <ul className="divide-y divide-gray-100">
             {[
-              ["face_capture", "Face capture during attendance"],
+              ...(requiresFacial ? [["face_capture", "Face capture during attendance"]] : []),
               ["geo_location", "Location sharing during attendance"],
               ["whatsapp_email", "Notifications by WhatsApp / Email"],
             ].map(([k, label]) => (
@@ -151,6 +162,10 @@ function PrivacyScreen() {
           <Button variant="secondary" onClick={exportData} data-testid="export-data"><Download className="h-4 w-4" />Download</Button>
         </Card>
 
+        <MyLocationsCard />
+
+        <ChangePasswordCard />
+
         <Card>
           <h3 className="font-semibold text-ink mb-1">Delete my account</h3>
           {data.erasure_request ? (
@@ -171,6 +186,123 @@ function PrivacyScreen() {
         {msg && <div className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 inline-block">{msg}</div>}
       </div>
     </div>
+  );
+}
+
+function MyLocationsCard() {
+  const [items, setItems] = useState(null);
+  const [pinFor, setPinFor] = useState(null);   // selected row
+
+  useEffect(() => {
+    api.get("/attendance/locations/me")
+      .then((r) => setItems(r.data || []))
+      .catch(() => setItems([]));
+  }, []);
+
+  return (
+    <Card data-testid="my-locations-card">
+      <h3 className="font-semibold text-ink mb-1 flex items-center gap-2">
+        <MapPin className="h-4 w-4 text-blue-600" /> My check-in locations
+      </h3>
+      <p className="text-sm text-gray-500 mb-3">
+        Only days where you allowed location sharing appear here.
+      </p>
+      {items === null ? <Spinner /> : items.length === 0 ? (
+        <div className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-md px-3 py-3 text-center">
+          No locations captured yet.
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-100 -mx-1">
+          {items.map((it) => (
+            <li key={it.id} className="py-2.5 px-1 flex items-center gap-3" data-testid={`loc-row-${it.date}`}>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-ink">{fmtDate(it.date)}</div>
+                <div className="text-xs text-gray-500 tabular">
+                  In: {fmtTime(it.check_in_at)} · Out: {it.check_out_at ? fmtTime(it.check_out_at) : "—"}
+                </div>
+              </div>
+              <button
+                onClick={() => setPinFor(it)}
+                className="h-9 px-3 rounded-md text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-1"
+                data-testid={`map-it-${it.date}`}
+              >
+                <MapPin className="h-3.5 w-3.5" /> Map it
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {pinFor && (
+        <Modal
+          open
+          onClose={() => setPinFor(null)}
+          title={`${fmtDate(pinFor.date)} — Location`}
+          footer={<Button variant="secondary" onClick={() => setPinFor(null)}>Close</Button>}
+        >
+          <PinMap
+            height={360}
+            pins={[
+              ...(pinFor.check_in_lat != null ? [{ lat: pinFor.check_in_lat, lng: pinFor.check_in_lng, color: "#10B981", label: `Check-in · ${fmtTime(pinFor.check_in_at)}` }] : []),
+              ...(pinFor.check_out_lat != null ? [{ lat: pinFor.check_out_lat, lng: pinFor.check_out_lng, color: "#EF4444", label: `Check-out · ${fmtTime(pinFor.check_out_at)}` }] : []),
+            ]}
+          />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function ChangePasswordCard() {
+  const [cur, setCur] = useState("");
+  const [nw, setNw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState({ kind: "", text: "" });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setMsg({ kind: "", text: "" });
+    try {
+      await api.post("/auth/change-password", { current_password: cur, new_password: nw });
+      setMsg({ kind: "ok", text: "Password updated. Use the new one next time you sign in." });
+      setCur(""); setNw("");
+    } catch (e2) {
+      setMsg({ kind: "err", text: fmtErr(e2) });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Card data-testid="change-password-card">
+      <h3 className="font-semibold text-ink mb-1">Change my password</h3>
+      <p className="text-sm text-gray-500 mb-3">At least 6 characters. Pick something only you know.</p>
+      <form onSubmit={submit} className="space-y-2.5">
+        <Input
+          type="password"
+          autoComplete="current-password"
+          required
+          value={cur}
+          onChange={(e) => setCur(e.target.value)}
+          placeholder="Current password"
+          data-testid="cur-password"
+        />
+        <Input
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={6}
+          value={nw}
+          onChange={(e) => setNw(e.target.value)}
+          placeholder="New password (min 6 chars)"
+          data-testid="new-password"
+        />
+        <Button type="submit" disabled={busy} data-testid="change-password-submit">{busy ? "Saving…" : "Update password"}</Button>
+        {msg.text && (
+          <div className={`text-sm rounded-md px-3 py-2 ${msg.kind === "ok" ? "bg-green-50 text-green-800 border border-green-100" : "bg-red-50 text-red-700 border border-red-100"}`}>
+            {msg.text}
+          </div>
+        )}
+      </form>
+    </Card>
   );
 }
 
@@ -292,7 +424,7 @@ function HomeScreen() {
           className="mt-4 w-full text-sm text-blue-600 inline-flex items-center justify-center gap-1 hover:underline"
           data-testid="toggle-today-history"
         >
-          {showHistory ? <><ChevronUp className="h-4 w-4" /> Hide today's history</> : <><ChevronDown className="h-4 w-4" /> Show today's mark-ins / outs</>}
+          {showHistory ? <><ChevronUp className="h-4 w-4" /> Hide today&apos;s history</> : <><ChevronDown className="h-4 w-4" /> Show today&apos;s mark-ins / outs</>}
         </button>
         {showHistory && (
           <ul className="mt-3 divide-y divide-gray-100 text-sm">
@@ -511,7 +643,7 @@ function AttendanceModal({ mode, config = {}, onClose, onMarked }) {
               </span>
             ) : coords?.skipped ? (
               <span className="text-gray-500" data-testid="loc-status">
-                Location not captured — that's OK, you can still mark.
+                Location not captured — that&apos;s OK, you can still mark.
               </span>
             ) : (
               <span className="text-gray-500" data-testid="loc-status">

@@ -8,7 +8,8 @@ from datetime import datetime, timezone, date
 
 
 # Friendly alphabet — drops 0/O/1/I/L to avoid confusion when read aloud or printed.
-_SIGNUP_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+SIGNUP_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_SIGNUP_CODE_ALPHABET = SIGNUP_CODE_ALPHABET
 
 
 def gen_id() -> str:

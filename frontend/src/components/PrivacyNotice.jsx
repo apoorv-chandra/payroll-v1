@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 import React from "react";
 import { Modal, Button } from "./ui/Primitives";
 import { PRIVACY as P } from "../lib/privacy";

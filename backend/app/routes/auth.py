@@ -71,6 +71,13 @@ async def login(payload: LoginRequest, response: Response):
             detail="Your account is awaiting employer approval. We'll email you once it's activated.",
         )
     token = create_access_token(user["_id"], user["role"], user.get("tenant_id"))
+    # Wipe the initial password on first successful login — from that point
+    # forward the employer no longer needs (or sees) it.
+    if user.get("initial_password_plain"):
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$unset": {"initial_password_plain": ""}, "$set": {"first_login_at": now_utc()}},
+        )
     response.set_cookie(
         "access_token",
         token,
@@ -124,6 +131,9 @@ async def signup(payload: SignupRequest):
         "_id": user_id,
         "email": email,
         "password_hash": hash_password(payload.password),
+        # Self-signup: never store plaintext — the user already knows their own
+        # password and the employer hasn't issued it. They'll change it in
+        # Settings if they wish.
         "name": payload.name.strip(),
         "role": "employee",
         "tenant_id": tenant["_id"],
@@ -166,6 +176,69 @@ async def signup(payload: SignupRequest):
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
+
+
+# ---------- Password management ----------
+
+@router.post("/change-password")
+async def change_password(payload: dict, user: dict = Depends(get_current_user)):
+    """Authenticated user changes their own password.
+    Validates the current password to prevent session-hijack abuse."""
+    current = (payload or {}).get("current_password") or ""
+    new = (payload or {}).get("new_password") or ""
+    if len(new) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+    # get_current_user strips password_hash; refetch full user record.
+    full = await db.users.find_one({"_id": user["_id"]})
+    if not full:
+        raise HTTPException(status_code=401, detail="User not found")
+    if not verify_password(current, full["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    if verify_password(new, full["password_hash"]):
+        raise HTTPException(status_code=400, detail="New password must differ from the current one.")
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {"password_hash": hash_password(new), "password_changed_at": now_utc()},
+            "$unset": {"initial_password_plain": ""},
+        },
+    )
+    return {"ok": True}
+
+
+@router.post("/forgot-password")
+async def forgot_password(payload: dict):
+    """Self-service password reset for employees who forgot their password.
+
+    Flow: employee enters email + new password → backend marks the request
+    'pending' → employer sees it in their dashboard → employer approves →
+    new password takes effect. This avoids the employer ever seeing the
+    plaintext password.
+    """
+    email = ((payload or {}).get("email") or "").lower().strip()
+    new = (payload or {}).get("new_password") or ""
+    if len(new) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+    user = await db.users.find_one({"email": email})
+    # Never reveal whether the email exists; return ok either way.
+    if user and user["role"] == "employee":
+        tdb = tenant_db(user["tenant_id"])
+        # Replace any earlier pending request for the same user.
+        await tdb.password_reset_requests.delete_many({"user_id": user["_id"], "status": "pending"})
+        await tdb.password_reset_requests.insert_one({
+            "_id": gen_id(),
+            "tenant_id": user["tenant_id"],
+            "user_id": user["_id"],
+            "email": email,
+            "name": user.get("name"),
+            "new_password_hash": hash_password(new),   # hashed, never stored plaintext
+            "status": "pending",
+            "created_at": now_utc(),
+        })
+    return {
+        "ok": True,
+        "message": "If that email is registered, your employer has been notified. They'll approve your new password shortly.",
+    }
 
 
 @router.get("/me")

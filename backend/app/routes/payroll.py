@@ -265,7 +265,6 @@ async def approve_run(
 
     # WhatsApp salary notification (per-employee).
     if new_status == "approved":
-        tenant_doc = await db.tenants.find_one({"_id": user["tenant_id"]})
         run_doc = await tdb.payroll_runs.find_one({"_id": run_id})
         mname = _months()[run_doc["month"]]
         app_url = settings.APP_BASE_URL or ""

@@ -246,3 +246,66 @@ async def attendance_config(user: dict = Depends(require_role("employee"))):
         "requires_geo": requires_geo,
         "geo_fence_enforced": geo_fence_enforced,
     }
+
+
+# ---------------- Location history ----------------
+
+@router.get("/locations/me")
+async def my_locations(user: dict = Depends(require_role("employee")), limit: int = 60):
+    """Date-wise list of stored check-in/out coordinates for the logged-in
+    employee. Only records where the employee had `geo_location` consent at
+    mark time appear here (the mark route enforces that)."""
+    tdb = tenant_db(user["tenant_id"])
+    emp = await tdb.employees.find_one({"user_id": user["_id"]}) or {}
+    if not emp:
+        return []
+    return await _location_history(tdb, emp["_id"], limit)
+
+
+@router.get("/locations/{employee_id}")
+async def employee_locations(
+    employee_id: str,
+    user: dict = Depends(get_current_user),
+    limit: int = 60,
+):
+    """Employer / accountant view of one employee's date-wise locations."""
+    if user["role"] != "employer" and "accountant" not in (user.get("elevated_roles") or []):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    tdb = tenant_db(user["tenant_id"])
+    emp = await tdb.employees.find_one({"_id": employee_id})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return await _location_history(tdb, employee_id, limit)
+
+
+async def _location_history(tdb, employee_id: str, limit: int) -> list[dict]:
+    out: list[dict] = []
+    cursor = (
+        tdb.attendance.find(
+            {
+                "employee_id": employee_id,
+                "$or": [
+                    {"check_in_lat": {"$ne": None}},
+                    {"check_out_lat": {"$ne": None}},
+                ],
+            }
+        )
+        .sort("date", -1)
+        .limit(limit)
+    )
+    async for a in cursor:
+        out.append(
+            {
+                "id": a["_id"],
+                "date": a["date"],
+                "check_in_at": a.get("check_in_at"),
+                "check_in_lat": a.get("check_in_lat"),
+                "check_in_lng": a.get("check_in_lng"),
+                "check_out_at": a.get("check_out_at"),
+                "check_out_lat": a.get("check_out_lat"),
+                "check_out_lng": a.get("check_out_lng"),
+                "accuracy": a.get("accuracy"),
+            }
+        )
+    return out
+

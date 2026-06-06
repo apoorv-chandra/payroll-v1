@@ -1,10 +1,12 @@
+/* eslint-disable react/no-unescaped-entities */
 import React, { useEffect, useMemo, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound } from "lucide-react";
+import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound, Eye, RotateCw } from "lucide-react";
 import GeofenceMap from "../components/GeofenceMap";
+import PinMap from "../components/PinMap";
 import useConfirm from "../lib/useConfirm";
 
 const NAV = [
@@ -157,17 +159,21 @@ function Overview() {
 function Employees() {
   const [list, setList] = useState(null);
   const [pending, setPending] = useState([]);
+  const [resetReqs, setResetReqs] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyEmpForm());
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [credsFor, setCredsFor] = useState(null);   // employee for credentials modal
+  const [locateFor, setLocateFor] = useState(null); // employee for locate modal
   const { confirm, ConfirmHost } = useConfirm();
 
   const load = async () => {
     setList(null);
     try { setList((await api.get("/employees")).data); } catch { setList([]); }
     try { setPending((await api.get("/employees/pending")).data); } catch { setPending([]); }
+    try { setResetReqs((await api.get("/employees/password-reset/pending")).data); } catch { setResetReqs([]); }
   };
   useEffect(() => { load(); }, []);
 
@@ -211,6 +217,7 @@ function Employees() {
       />
 
       <PendingSignups items={pending} onChanged={load} />
+      <PendingPasswordResets items={resetReqs} onChanged={load} />
 
       {list === null ? <Spinner /> : list.length === 0 ? (
         <Empty icon={Users} title="No employees yet" hint="Add your first employee — they'll get login credentials and can start marking attendance." action={<Button onClick={() => setOpen(true)} data-testid="add-employee-empty"><Plus className="h-4 w-4" />Add employee</Button>} />
@@ -243,6 +250,8 @@ function Employees() {
                         e.elevated_roles.map((r) => <Badge key={r} tone="blue">{r}</Badge>)}
                     </td>
                     <td className="py-3 px-4 text-right">
+                      <button onClick={() => setCredsFor(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-blue-700" title="Credentials" data-testid={`creds-${e.id}`}><KeyRound className="h-4 w-4" /></button>
+                      <button onClick={() => setLocateFor(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-emerald-700" title="Locate" data-testid={`locate-${e.id}`}><MapPin className="h-4 w-4" /></button>
                       <button onClick={() => startEdit(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700" data-testid={`edit-${e.id}`}><Pencil className="h-4 w-4" /></button>
                       <button onClick={() => del(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-red-600" data-testid={`del-${e.id}`}><Trash2 className="h-4 w-4" /></button>
                     </td>
@@ -296,6 +305,211 @@ function Employees() {
           {err && <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">{err}</div>}
         </form>
       </Modal>
+
+      {credsFor && (
+        <CredentialsModal
+          employee={credsFor}
+          onClose={() => setCredsFor(null)}
+          onReset={load}
+        />
+      )}
+      {locateFor && (
+        <LocateEmployeeModal
+          employee={locateFor}
+          onClose={() => setLocateFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CredentialsModal({ employee, onClose, onReset }) {
+  const [data, setData] = useState(null);
+  const [reveal, setReveal] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { confirm, ConfirmHost } = useConfirm();
+
+  const load = async () => {
+    try { setData((await api.get(`/employees/${employee.id}/credentials`)).data); }
+    catch { setData({ error: true }); }
+  };
+  useEffect(() => { load(); }, []);    // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reset = async () => {
+    const ok = await confirm({
+      kind: "simple",
+      title: `Reset password for ${employee.name}?`,
+      body: "A new temporary password will be generated. The employee's current password stops working immediately.",
+      danger: true,
+      confirmText: "Reset password",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.post(`/employees/${employee.id}/reset-password`);
+      await load();
+      setReveal(true);
+      onReset && onReset();
+    } catch { /* noop */ }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Credentials — ${employee.name}`}
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      {ConfirmHost}
+      <div className="space-y-3 text-sm" data-testid="credentials-body">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-gray-500">Login email</div>
+          <div className="font-mono">{data?.email || "—"}</div>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-wider text-gray-500">Initial password</div>
+          {data?.initial_password ? (
+            <div className="mt-1 flex items-center gap-2">
+              <code className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-md font-mono tracking-[0.2em] text-base" data-testid="initial-password-value">
+                {reveal ? data.initial_password : "••••••••"}
+              </code>
+              <button
+                type="button"
+                onClick={() => setReveal((v) => !v)}
+                className="h-9 px-3 rounded-md border border-gray-200 hover:bg-gray-50 inline-flex items-center gap-1 text-xs"
+                data-testid="toggle-reveal-password"
+              >
+                <Eye className="h-3.5 w-3.5" />{reveal ? "Hide" : "Reveal"}
+              </button>
+              <button
+                type="button"
+                onClick={async () => { try { await navigator.clipboard.writeText(data.initial_password); } catch { window.prompt("Copy:", data.initial_password); } }}
+                className="h-9 px-3 rounded-md border border-gray-200 hover:bg-gray-50 inline-flex items-center gap-1 text-xs"
+                data-testid="copy-initial-password"
+              >
+                <Copy className="h-3.5 w-3.5" />Copy
+              </button>
+            </div>
+          ) : (
+            <div className="text-gray-500 italic mt-1">
+              Employee has already logged in. Initial password is no longer available for security.
+            </div>
+          )}
+        </div>
+
+        <div className="text-xs text-gray-500">
+          {data?.first_login_at && <div>First login: {fmtDate(data.first_login_at)}</div>}
+          {data?.password_changed_at && <div>Password changed: {fmtDate(data.password_changed_at)}</div>}
+        </div>
+
+        <hr className="border-gray-100" />
+
+        <Button variant="secondary" onClick={reset} disabled={busy} data-testid="reset-password-btn">
+          <RotateCw className="h-4 w-4" />{busy ? "Resetting…" : "Reset password"}
+        </Button>
+        <p className="text-xs text-gray-500">
+          Resets the employee's password to a new temporary one (shown above after reset). The employee will be forced to use it on next sign-in.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+function LocateEmployeeModal({ employee, onClose }) {
+  const [items, setItems] = useState(null);
+  const [pinFor, setPinFor] = useState(null);
+
+  useEffect(() => {
+    api.get(`/attendance/locations/${employee.id}`)
+      .then((r) => setItems(r.data || []))
+      .catch(() => setItems([]));
+  }, [employee.id]);
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Locate — ${employee.name}`}
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      {items === null ? <Spinner /> : items.length === 0 ? (
+        <div className="text-sm text-gray-500 bg-gray-50 border border-gray-100 rounded-md px-3 py-3 text-center">
+          No location records (employee may not have shared location).
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-100 -mx-1 max-h-[50vh] overflow-y-auto" data-testid="locate-list">
+          {items.map((it) => (
+            <li key={it.id} className="py-2.5 px-1 flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-ink">{fmtDate(it.date)}</div>
+                <div className="text-xs text-gray-500 tabular">
+                  In: {fmtTime(it.check_in_at)} · Out: {it.check_out_at ? fmtTime(it.check_out_at) : "—"}
+                </div>
+              </div>
+              <button
+                onClick={() => setPinFor(it)}
+                className="h-9 px-3 rounded-md text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 inline-flex items-center gap-1"
+                data-testid={`locate-map-${it.date}`}
+              >
+                <MapPin className="h-3.5 w-3.5" />Map it
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {pinFor && (
+        <Modal
+          open
+          onClose={() => setPinFor(null)}
+          title={`${fmtDate(pinFor.date)} — ${employee.name}`}
+          footer={<Button variant="secondary" onClick={() => setPinFor(null)}>Close</Button>}
+        >
+          <PinMap
+            height={360}
+            pins={[
+              ...(pinFor.check_in_lat != null ? [{ lat: pinFor.check_in_lat, lng: pinFor.check_in_lng, color: "#10B981", label: `Check-in · ${fmtTime(pinFor.check_in_at)}` }] : []),
+              ...(pinFor.check_out_lat != null ? [{ lat: pinFor.check_out_lat, lng: pinFor.check_out_lng, color: "#EF4444", label: `Check-out · ${fmtTime(pinFor.check_out_at)}` }] : []),
+            ]}
+          />
+        </Modal>
+      )}
+    </Modal>
+  );
+}
+
+function PendingPasswordResets({ items, onChanged }) {
+  if (!items || items.length === 0) return null;
+  const act = async (id, action) => {
+    try { await api.post(`/employees/password-reset/${id}/${action}`); onChanged && onChanged(); }
+    catch (e) { alert(fmtErr(e)); }
+  };
+  return (
+    <div className="mb-5" data-testid="pending-resets-panel">
+      <Card className="!p-0 overflow-hidden border-orange-200">
+        <div className="px-4 py-3 bg-orange-50 border-b border-orange-200 flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-orange-700" />
+          <span className="text-sm font-semibold text-orange-900">
+            {items.length} pending password reset{items.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <ul className="divide-y divide-gray-100">
+          {items.map((r) => (
+            <li key={r.id} className="px-4 py-3 flex items-center gap-3" data-testid={`reset-row-${r.id}`}>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-ink truncate">{r.name || r.email}</div>
+                <div className="text-xs text-gray-500 truncate">{r.email}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => act(r.id, "reject")} className="h-9 px-3 rounded-md text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100" data-testid={`reject-reset-${r.id}`}>Reject</button>
+                <button onClick={() => act(r.id, "approve")} className="h-9 px-3 rounded-md text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100" data-testid={`approve-reset-${r.id}`}>Approve</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
     </div>
   );
 }
