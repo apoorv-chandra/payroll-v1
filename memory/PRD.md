@@ -50,6 +50,20 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Feb 17, 2026 — v9 / consent simplification + locations + safe password lifecycle)
+**v9 additions**
+- **ConsentGate redesigned**: clean single-action "Accept and continue" / "Cancel→confirm logout" modal. Defaults at accept time: data_processing=true, geo_location=true, face_capture=ONLY if employer enabled facial, whatsapp_email=FALSE (opt-in later in Settings).
+- **PrivacyScreen** now reads /attendance/config to hide face_capture toggle when employer hasn't enabled facial recognition for this employee.
+- **Location history**: new endpoints `GET /api/attendance/locations/me` and `/locations/{employee_id}`. Date-wise list of mark-in/out coordinates (only when geo consent was given at mark time).
+- **My Locations card** added to employee Privacy tab with "Map it" buttons opening a MapLibre `PinMap` modal with green check-in / red check-out drop-pins.
+- **Locate modal** on Employer Employees row — same date-wise list per employee, with the same map.
+- **Safe password lifecycle** (DPDP-compliant, no plaintext stored long-term):
+  - Employer-created employees get `initial_password_plain` stored — auto-WIPED on first successful login.
+  - Employer "Credentials" modal shows email + initial password (masked, reveal/copy buttons) + "Reset password" button generating a fresh 8-char temp.
+  - Employee Privacy tab gets a "Change my password" card.
+  - Login screen has a "Forgot password?" link → modal that creates a pending request; employer approves it from "Pending password resets" panel; new bcrypt hash applied only after approval.
+- **Tests**: 16/16 new + 100/102 regression backend, frontend compiles cleanly.
+
 ## Implemented (Feb 17, 2026 — v8 / DB-per-tenant + immutable invite codes)
 **v8 architectural overhaul**
 - **Database-per-tenant**: every employer now has their own MongoDB database (`payroll_db_t_<tenant_id>`). Auth (`users`, `tenants`, `captchas`, `platform_settings`) stays GLOBAL. Per-tenant collections (`employees`, `attendance`, `leave_*`, `payroll_*`, `audit_logs`, `consents`, `erasure_requests`) physically isolated. Cross-tenant access now returns 404 instead of 403 — caller can't even confirm existence of foreign tenant data.
