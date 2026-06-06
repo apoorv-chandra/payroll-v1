@@ -36,3 +36,26 @@ export function requestGeoPermission({ timeoutMs = 10000 } = {}) {
     }
   });
 }
+
+/**
+ * Query the current browser-level geolocation permission state without
+ * triggering the prompt. Returns one of:
+ *   "granted" | "denied" | "prompt" | "unknown" | "unsupported"
+ *
+ * Notes:
+ *  - `navigator.permissions` isn't available on every Safari version; we
+ *    return "unknown" in that case so the UI can stay neutral.
+ *  - "prompt" means the next getCurrentPosition() call will show the OS dialog.
+ *  - "denied" means the user previously blocked us; the only way back is via
+ *    the browser's per-site permission UI (no JS API).
+ */
+export async function getGeoPermissionState() {
+  if (!("geolocation" in navigator)) return "unsupported";
+  if (!("permissions" in navigator) || !navigator.permissions?.query) return "unknown";
+  try {
+    const r = await navigator.permissions.query({ name: "geolocation" });
+    return r.state || "unknown";
+  } catch {
+    return "unknown";
+  }
+}

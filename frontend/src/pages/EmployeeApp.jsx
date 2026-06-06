@@ -12,7 +12,7 @@ import { enqueue } from "../lib/offlineQueue";
 import useOnline from "../lib/useOnline";
 import { useAuth } from "../contexts/AuthContext";
 import useConfirm from "../lib/useConfirm";
-import { requestGeoPermission } from "../lib/permissions";
+import { requestGeoPermission, getGeoPermissionState } from "../lib/permissions";
 
 const BASE_NAV = [
   { id: "home", to: "/me", end: true, label: "Home", icon: Home },
@@ -99,22 +99,29 @@ function PrivacyScreen() {
   const update = async (key, value) => {
     setBusy(true); setMsg("");
     try {
-      // When turning location sharing ON, trigger the device OS-level permission
-      // dialog so the browser actually asks the user. Without this, the toggle
-      // can be ON but the browser silently has no permission, and check-ins
-      // would fail to capture location.
+      // Persist the consent FIRST — never block the toggle on the browser
+      // permission, because browsers don't expose a way to deep-link into OS
+      // location settings, and a stale "denied" state would silently lock
+      // the toggle. Saving consent first matches the user's mental model:
+      // "ON means I'm willing to share". The browser/OS permission is a
+      // separate layer we surface below.
+      const next = { ...data.consents, [key]: value };
+      await api.put("/me/privacy/consents", { consents: next });
+      await load();
+      setMsg("Saved.");
+      setTimeout(() => setMsg(""), 1800);
+
+      // After saving, try to obtain the browser permission so the first
+      // check-in already has it. If denied / blocked / OS off, surface a
+      // clear hint — but keep the consent ON.
       if (key === "geo_location" && value === true) {
         const ok = await requestGeoPermission();
         if (!ok) {
-          setMsg("Location access was blocked or unavailable. Enable it in your browser/device settings to share your location.");
-          setBusy(false);
-          return;
+          setMsg(
+            "Saved. Your browser couldn't access device location — turn on Location in your phone/browser settings, then try a check-in."
+          );
         }
       }
-      const next = { ...data.consents, [key]: value };
-      await api.put("/me/privacy/consents", { consents: next });
-      load(); setMsg("Saved.");
-      setTimeout(() => setMsg(""), 1500);
     } catch (e) {
       setMsg(fmtErr(e));
     } finally { setBusy(false); }
@@ -164,6 +171,9 @@ function PrivacyScreen() {
               </li>
             ))}
           </ul>
+          {/* Browser/device permission status for location — only meaningful
+              when the user has agreed to share location. */}
+          {c.geo_location && <GeoPermissionStatusRow />}
           <div className="mt-3 text-xs text-gray-500">
             <button className="text-blue-600 underline" onClick={() => setShowNotice(true)} data-testid="open-privacy-link">Read the full privacy notice</button>
           </div>
@@ -198,6 +208,67 @@ function PrivacyScreen() {
 
         {msg && <div className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 inline-block">{msg}</div>}
       </div>
+    </div>
+  );
+}
+
+function GeoPermissionStatusRow() {
+  const [state, setState] = useState("unknown");
+  const [busy, setBusy] = useState(false);
+  const [hint, setHint] = useState("");
+
+  const refresh = async () => setState(await getGeoPermissionState());
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const s = await getGeoPermissionState();
+      if (live) setState(s);
+    })();
+    return () => { live = false; };
+  }, []);
+
+  const test = async () => {
+    setBusy(true); setHint("");
+    const ok = await requestGeoPermission();
+    setBusy(false);
+    if (ok) {
+      setHint("Location access is working.");
+    } else if (state === "denied") {
+      setHint("Your browser has blocked location for this site. Open browser site-settings (lock icon in the address bar) → Permissions → Location → Allow, then reload.");
+    } else {
+      setHint("Couldn't read location. Make sure phone Location/GPS is ON, then try again.");
+    }
+    refresh();
+  };
+
+  const tone =
+    state === "granted" ? "text-green-700 bg-green-50 border-green-100"
+    : state === "denied" ? "text-red-700 bg-red-50 border-red-100"
+    : state === "unsupported" ? "text-gray-600 bg-gray-50 border-gray-100"
+    : "text-amber-800 bg-amber-50 border-amber-100";
+
+  const label =
+    state === "granted" ? "Browser permission: Granted"
+    : state === "denied" ? "Browser permission: Blocked"
+    : state === "prompt" ? "Browser permission: Not asked yet"
+    : state === "unsupported" ? "Geolocation not supported on this device"
+    : "Browser permission: Unknown";
+
+  return (
+    <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${tone}`} data-testid="geo-permission-status">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium" data-testid="geo-permission-label">{label}</span>
+        <button
+          onClick={test}
+          disabled={busy || state === "unsupported"}
+          className="h-8 px-3 rounded-md text-xs font-medium bg-white border border-current/30 hover:bg-white/70 disabled:opacity-50"
+          data-testid="test-location-btn"
+        >
+          {busy ? "Checking…" : "Test location"}
+        </button>
+      </div>
+      {hint && <div className="mt-2 text-[11px] opacity-90" data-testid="geo-permission-hint">{hint}</div>}
     </div>
   );
 }
