@@ -11,6 +11,11 @@ from .config import configure_logging, settings
 from .db import ensure_indexes
 from .scheduler import start_scheduler, stop_scheduler
 from .services.seed import seed_super_admin, seed_platform_settings, backfill_signup_codes
+from .services.features import (
+    seed_features,
+    backfill_employer_features,
+    backfill_user_feature_permissions,
+)
 from .services.migrate import migrate_per_tenant_collections
 from .utils import now_utc
 
@@ -21,6 +26,7 @@ from .routes import attendance as attendance_routes
 from .routes import leaves as leaves_routes
 from .routes import payroll as payroll_routes
 from .routes import privacy as privacy_routes
+from .routes import features as features_routes
 
 
 @asynccontextmanager
@@ -30,6 +36,9 @@ async def lifespan(app: FastAPI):
     await seed_super_admin()
     await seed_platform_settings()
     await backfill_signup_codes()
+    await seed_features()
+    await backfill_employer_features()
+    await backfill_user_feature_permissions()
     await migrate_per_tenant_collections()
     start_scheduler()
     try:
@@ -89,6 +98,7 @@ def create_app() -> FastAPI:
     api.include_router(leaves_routes.router)
     api.include_router(payroll_routes.router)
     api.include_router(privacy_routes.router)
+    api.include_router(features_routes.router)
 
     @api.get("/health")
     async def health():

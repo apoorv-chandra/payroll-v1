@@ -5,6 +5,7 @@ from fastapi import Request, HTTPException, Depends
 
 from .security import decode_access_token
 from .db import db
+from .services.features import effective_features_for_user
 
 
 async def get_current_user(request: Request) -> dict:
@@ -50,3 +51,22 @@ async def require_employer_or_admin(user: dict = Depends(get_current_user)):
     if user["role"] not in ("super_admin", "employer"):
         raise HTTPException(status_code=403, detail="Forbidden")
     return user
+
+
+def require_feature(code: str):
+    """Gate any route behind an effective feature permission.
+
+    Effective = intersection(active features, employer.enabled_features,
+    user.feature_permissions). Super admins bypass — they always pass.
+    """
+    async def dep(user: dict = Depends(get_current_user)):
+        if user.get("role") == "super_admin":
+            return user
+        allowed = await effective_features_for_user(user)
+        if code not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Forbidden: '{code}' module not enabled for your account",
+            )
+        return user
+    return dep

@@ -121,6 +121,10 @@ async def create_employee(
         raise HTTPException(status_code=400, detail="Employee code already exists")
     emp_id = gen_id()
     user_id = gen_id()
+    # Inherit employer's enabled features by default. Employer can later
+    # narrow this via PUT /api/employees/{user_id}/features.
+    tenant = await db.tenants.find_one({"_id": user["tenant_id"]}, {"enabled_features": 1})
+    employer_enabled = list((tenant or {}).get("enabled_features") or ["payroll"])
     await db.users.insert_one({
         "_id": user_id,
         "email": email,
@@ -132,6 +136,7 @@ async def create_employee(
         "employee_id": emp_id,
         "elevated_roles": req.elevated_roles or [],
         "phone": req.phone,
+        "feature_permissions": employer_enabled,
         "created_at": now_utc(),
     })
     await tdb.employees.insert_one({
@@ -173,13 +178,27 @@ async def list_employees(user: dict = Depends(require_employer_or_admin)):
     tdb = tenant_db(user["tenant_id"])
     if user["role"] == "super_admin":
         raise HTTPException(status_code=400, detail="Use tenant scope")
-    out = []
+    # Bulk-fetch the linked user docs once so we can attach feature_permissions
+    # without an N+1 query per row.
+    user_ids = []
+    employees = []
     async for e in tdb.employees.find({"tenant_id": user["tenant_id"]}).sort("emp_code", 1):
-        # Hide pending self-signups from the main employee list — they live
-        # in their own "Pending signups" section to be approved or rejected.
         if e.get("signup_status") == "pending":
             continue
-        out.append(strip_id(e))
+        employees.append(e)
+        if e.get("user_id"):
+            user_ids.append(e["user_id"])
+    perms_by_uid: dict[str, list[str]] = {}
+    if user_ids:
+        async for u in db.users.find(
+            {"_id": {"$in": user_ids}}, {"feature_permissions": 1}
+        ):
+            perms_by_uid[u["_id"]] = list(u.get("feature_permissions") or [])
+    out = []
+    for e in employees:
+        row = strip_id(e)
+        row["feature_permissions"] = perms_by_uid.get(e.get("user_id"), [])
+        out.append(row)
     return out
 
 
@@ -243,6 +262,13 @@ async def approve_signup(
     user_upd = {"disabled": False}
     if req.elevated_roles is not None:
         user_upd["elevated_roles"] = req.elevated_roles
+    # Grant the approved signup the same modules the employer currently has.
+    tenant_doc_for_features = await db.tenants.find_one(
+        {"_id": user["tenant_id"]}, {"enabled_features": 1}
+    )
+    user_upd["feature_permissions"] = list(
+        (tenant_doc_for_features or {}).get("enabled_features") or ["payroll"]
+    )
     await db.users.update_one({"_id": e["user_id"]}, {"$set": user_upd})
 
     await reset_leave_balances(

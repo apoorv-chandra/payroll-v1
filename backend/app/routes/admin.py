@@ -52,6 +52,9 @@ async def create_employer(
             },
             "company_logo_url": None,
         },
+        # New employers start with Payroll enabled by default. Super admin
+        # can flip on additional modules (e.g. "students") via the features UI.
+        "enabled_features": ["payroll"],
     })
     employer_user_id = gen_id()
     await db.users.insert_one({
@@ -61,6 +64,7 @@ async def create_employer(
         "name": req.admin_name,
         "role": "employer",
         "tenant_id": tenant_id,
+        "feature_permissions": ["payroll"],
         "created_at": now_utc(),
     })
     await audit(tenant_id, user["_id"], "tenant.create", tenant_id, {"name": req.name, "signup_code": signup_code})
@@ -78,6 +82,8 @@ async def list_employers(user: dict = Depends(require_role("super_admin"))):
         t["id"] = t["_id"]
         t["admin"] = public_user(admin)
         t["employee_count"] = emp_count
+        # Default to ["payroll"] for legacy tenants that haven't been backfilled yet.
+        t["enabled_features"] = t.get("enabled_features") or ["payroll"]
         out.append({k: v for k, v in t.items() if k != "_id"})
     return out
 
