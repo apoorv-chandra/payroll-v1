@@ -7,6 +7,8 @@ import Signup from "./pages/Signup";
 import AdminApp from "./pages/AdminApp";
 import EmployerApp from "./pages/EmployerApp";
 import EmployeeApp from "./pages/EmployeeApp";
+import Launchpad from "./pages/Launchpad";
+import StudentsApp from "./pages/StudentsApp";
 
 function Protected({ allow, children }) {
   const { user } = useAuth();
@@ -19,7 +21,8 @@ function Protected({ allow, children }) {
 function HomeRedirect() {
   const { user } = useAuth();
   if (user === undefined) return <FullScreenLoader />;
-  return <Navigate to={user ? homeFor(user) : "/login"} replace />;
+  // Launchpad decides single-vs-many feature routing internally.
+  return <Navigate to={user ? "/launchpad" : "/login"} replace />;
 }
 
 export default function App() {
@@ -34,6 +37,8 @@ export default function App() {
             <Route path="/admin/*" element={<Protected allow={["super_admin"]}><AdminApp /></Protected>} />
             <Route path="/employer/*" element={<Protected allow={["employer"]}><EmployerApp /></Protected>} />
             <Route path="/me/*" element={<Protected allow={["employee"]}><EmployeeApp /></Protected>} />
+            <Route path="/launchpad" element={<Protected><Launchpad /></Protected>} />
+            <Route path="/school/*" element={<Protected><StudentsApp /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

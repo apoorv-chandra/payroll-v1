@@ -5,6 +5,7 @@ import { useI18n } from "../contexts/I18nContext";
 import { Button, Input, Spinner, Modal } from "../components/ui/Primitives";
 import { Eye, EyeOff, RefreshCw, Globe, Mail } from "lucide-react";
 import { api, fmtErr } from "../lib/api";
+import { loadFeatures, resetFeatures } from "../lib/useFeatures";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -28,14 +29,29 @@ export default function Login() {
   useEffect(() => { loadCaptcha(); }, []);
 
   if (user === undefined) return <FullScreenLoader />;
-  if (user) return <Navigate to={homeFor(user)} replace />;
+  // If already logged in, send to launchpad — it handles 0/1/many feature redirect.
+  if (user) return <Navigate to="/launchpad" replace />;
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setBusy(true); setErr("");
     try {
       const u = await login(email.trim(), password, cap?.token, Number(capAns));
-      navigate(homeFor(u), { replace: true });
+      // Fetch effective features to decide where to land.
+      //  • 0 features → empty-state Launchpad (user contacts admin).
+      //  • 1 feature  → straight into that module (single-feature users skip the picker).
+      //  • 2+ features → /launchpad tile picker.
+      resetFeatures();
+      const feats = await loadFeatures(true);
+      const list = feats?.features || [];
+      if (list.length === 1) {
+        navigate(list[0].landing_path || homeFor(u), { replace: true });
+      } else if (list.length >= 2) {
+        navigate("/launchpad", { replace: true });
+      } else {
+        // No active modules — show launchpad's empty state for clarity.
+        navigate("/launchpad", { replace: true });
+      }
     } catch (e2) {
       setErr(e2.message);
       loadCaptcha();

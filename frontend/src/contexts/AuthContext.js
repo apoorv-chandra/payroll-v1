@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api } from "../lib/api";
 import { clearAuthBlock } from "../lib/offlineQueue";
+import { resetFeatures } from "../lib/useFeatures";
 
 const AuthCtx = createContext(null);
 
@@ -61,6 +62,7 @@ export function AuthProvider({ children }) {
     try { await api.post("/auth/logout"); } catch { /* noop */ }
     localStorage.removeItem("access_token");
     localStorage.removeItem("auth_user");
+    resetFeatures();
     setUser(null);
   };
 

@@ -4,7 +4,7 @@ import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound, Eye, RotateCw } from "lucide-react";
+import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound, Eye, RotateCw, LayoutGrid } from "lucide-react";
 import GeofenceMap from "../components/GeofenceMap";
 import PinMap from "../components/PinMap";
 import useConfirm from "../lib/useConfirm";
@@ -167,6 +167,9 @@ function Employees() {
   const [busy, setBusy] = useState(false);
   const [credsFor, setCredsFor] = useState(null);   // employee for credentials modal
   const [locateFor, setLocateFor] = useState(null); // employee for locate modal
+  const [featuresFor, setFeaturesFor] = useState(null); // employee for module-access modal
+  const [employerFeatures, setEmployerFeatures] = useState([]); // codes this employer can grant
+  const [catalog, setCatalog] = useState([]);
   const { confirm, ConfirmHost } = useConfirm();
 
   const load = async () => {
@@ -174,6 +177,13 @@ function Employees() {
     try { setList((await api.get("/employees")).data); } catch { setList([]); }
     try { setPending((await api.get("/employees/pending")).data); } catch { setPending([]); }
     try { setResetReqs((await api.get("/employees/password-reset/pending")).data); } catch { setResetReqs([]); }
+    // Refresh what modules the employer can grant (changes when super admin
+    // tweaks tenant.enabled_features).
+    try {
+      const me = await api.get("/me/features");
+      setEmployerFeatures((me.data?.features || []).map((f) => f.code));
+    } catch { /* noop */ }
+    try { setCatalog((await api.get("/features")).data || []); } catch { /* noop */ }
   };
   useEffect(() => { load(); }, []);
 
@@ -250,6 +260,7 @@ function Employees() {
                         e.elevated_roles.map((r) => <Badge key={r} tone="blue">{r}</Badge>)}
                     </td>
                     <td className="py-3 px-4 text-right">
+                      <button onClick={() => setFeaturesFor(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-indigo-700" title="Module access" data-testid={`features-${e.id}`}><LayoutGrid className="h-4 w-4" /></button>
                       <button onClick={() => setCredsFor(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-blue-700" title="Credentials" data-testid={`creds-${e.id}`}><KeyRound className="h-4 w-4" /></button>
                       <button onClick={() => setLocateFor(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-emerald-700" title="Locate" data-testid={`locate-${e.id}`}><MapPin className="h-4 w-4" /></button>
                       <button onClick={() => startEdit(e)} className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700" data-testid={`edit-${e.id}`}><Pencil className="h-4 w-4" /></button>
@@ -319,7 +330,83 @@ function Employees() {
           onClose={() => setLocateFor(null)}
         />
       )}
+      <EmployeeFeaturesModal
+        open={!!featuresFor}
+        employee={featuresFor}
+        allowedCodes={employerFeatures}
+        catalog={catalog}
+        onClose={() => setFeaturesFor(null)}
+        onSaved={() => { setFeaturesFor(null); load(); }}
+      />
     </div>
+  );
+}
+
+function EmployeeFeaturesModal({ open, employee, allowedCodes, catalog, onClose, onSaved }) {
+  const [codes, setCodes] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (open && employee) setCodes(employee.feature_permissions || []);
+    if (!open) setErr("");
+  }, [open, employee]);
+
+  const visible = (catalog || []).filter((f) => allowedCodes.includes(f.code));
+
+  const toggle = (code) => setCodes((p) => p.includes(code) ? p.filter((c) => c !== code) : [...p, code]);
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      await api.put(`/employees/${employee.user_id}/features`, { codes });
+      onSaved();
+    } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Module access — ${employee?.name || ""}`}
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={busy} data-testid="save-employee-features-btn">
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </>
+      )}
+    >
+      {visible.length === 0 ? (
+        <p className="text-sm text-gray-600">No modules are enabled for your account yet. Contact your administrator to enable more modules.</p>
+      ) : (
+        <>
+          <p className="text-sm text-gray-600 mb-3">
+            Pick which modules <b>{employee?.name}</b> can use. You can only grant modules your account has access to.
+          </p>
+          <ul className="divide-y divide-gray-100">
+            {visible.map((f) => (
+              <li key={f.code} className="py-3 flex items-start gap-3" data-testid={`employee-feature-row-${f.code}`}>
+                <input
+                  id={`empfeat-${f.code}`}
+                  type="checkbox"
+                  className="mt-1 h-5 w-5 accent-[#2563EB]"
+                  checked={codes.includes(f.code)}
+                  onChange={() => toggle(f.code)}
+                  data-testid={`employee-feature-checkbox-${f.code}`}
+                />
+                <label htmlFor={`empfeat-${f.code}`} className="flex-1 cursor-pointer">
+                  <div className="font-medium text-ink">{f.name}</div>
+                  <div className="text-xs text-gray-500">{f.description}</div>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {err && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md px-3 py-2">{err}</div>}
+    </Modal>
   );
 }
 

@@ -42,3 +42,28 @@ def decode_access_token(token: str) -> dict:
 # ---------- Captcha ----------
 def new_captcha_token() -> str:
     return secrets.token_urlsafe(18)
+
+
+# ---------- File access tokens (signed download links) ----------
+#
+# Used by the Students module to embed clickable file URLs in Google Sheets
+# cells without exposing GridFS ObjectIds as "secrets". A signed token binds
+# the file id + tenant + expiry — without it, the file endpoint returns 401.
+def sign_file_token(tenant_id: str, file_id: str, ttl_days: int = 30) -> str:
+    payload = {
+        "tenant_id": tenant_id,
+        "file_id": file_id,
+        "exp": datetime.now(timezone.utc) + timedelta(days=ttl_days),
+        "type": "file",
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def verify_file_token(token: str) -> dict | None:
+    try:
+        data = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        if data.get("type") != "file":
+            return None
+        return data
+    except Exception:
+        return None

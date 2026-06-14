@@ -38,6 +38,18 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def get_current_user_optional(request: Request) -> dict | None:
+    """Same as get_current_user but returns None instead of raising 401.
+
+    Used by endpoints that accept EITHER a JWT or an alternative credential
+    (e.g. signed file-download tokens for embedding in Google Sheets cells).
+    """
+    try:
+        return await get_current_user(request)
+    except HTTPException:
+        return None
+
+
 def require_role(*roles: str):
     async def dep(user: dict = Depends(get_current_user)):
         if user["role"] not in roles:

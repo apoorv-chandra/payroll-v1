@@ -61,12 +61,17 @@ function Employers() {
   const [err, setErr] = useState("");
 
   const [createdCode, setCreatedCode] = useState(null);
+  const [featuresFor, setFeaturesFor] = useState(null);     // employer being edited
+  const [catalog, setCatalog] = useState([]);
 
   const load = async () => {
     setList(null);
     try { const { data } = await api.get("/admin/employers"); setList(data); } catch { setList([]); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.get("/features").then((r) => setCatalog(r.data || [])).catch(() => setCatalog([]));
+  }, []);
 
   const create = async (e) => {
     e.preventDefault();
@@ -118,7 +123,19 @@ function Employers() {
                   <div className="font-mono text-lg tracking-[0.2em] text-ink select-all" data-testid={`invite-code-${t.id}`}>{t.signup_code}</div>
                 </div>
               )}
+              <div className="mt-3">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Modules</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(t.enabled_features || []).length === 0 && <span className="text-xs text-gray-400">None enabled</span>}
+                  {(t.enabled_features || []).map((c) => (
+                    <Badge key={c} tone="blue">{c}</Badge>
+                  ))}
+                </div>
+              </div>
               <div className="mt-4 flex gap-2 justify-end">
+                <Button variant="secondary" onClick={() => setFeaturesFor(t)} data-testid={`manage-features-${t.id}`}>
+                  Manage modules
+                </Button>
                 <Button variant="danger" onClick={() => del(t.id)} data-testid={`delete-employer-${t.id}`}><Trash2 className="h-4 w-4" />Delete</Button>
               </div>
             </Card>
@@ -172,7 +189,78 @@ function Employers() {
           </div>
         )}
       </Modal>
+
+      <ManageEmployerFeaturesModal
+        open={!!featuresFor}
+        employer={featuresFor}
+        catalog={catalog}
+        onClose={() => setFeaturesFor(null)}
+        onSaved={() => { setFeaturesFor(null); load(); }}
+      />
     </div>
+  );
+}
+
+function ManageEmployerFeaturesModal({ open, employer, catalog, onClose, onSaved }) {
+  const [codes, setCodes] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (open && employer) setCodes(employer.enabled_features || []);
+    if (!open) setErr("");
+  }, [open, employer]);
+
+  const toggle = (code) => {
+    setCodes((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
+  };
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      await api.put(`/admin/employers/${employer.id}/features`, { codes });
+      onSaved();
+    } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Modules — ${employer?.name || ""}`}
+      footer={(
+        <>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={busy} data-testid="save-employer-features-btn">
+            {busy ? "Saving…" : "Save"}
+          </Button>
+        </>
+      )}
+    >
+      <p className="text-sm text-gray-600 mb-3">
+        Pick the modules this employer should have access to. Revoking a module trims it from every
+        employee inside this employer who currently has it.
+      </p>
+      <ul className="divide-y divide-gray-100">
+        {catalog.map((f) => (
+          <li key={f.code} className="py-3 flex items-start gap-3" data-testid={`feature-row-${f.code}`}>
+            <input
+              id={`feat-${f.code}`}
+              type="checkbox"
+              className="mt-1 h-5 w-5 accent-[#2563EB]"
+              checked={codes.includes(f.code)}
+              onChange={() => toggle(f.code)}
+              data-testid={`feature-checkbox-${f.code}`}
+            />
+            <label htmlFor={`feat-${f.code}`} className="flex-1 cursor-pointer">
+              <div className="font-medium text-ink">{f.name}</div>
+              <div className="text-xs text-gray-500">{f.description}</div>
+            </label>
+          </li>
+        ))}
+      </ul>
+      {err && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md px-3 py-2">{err}</div>}
+    </Modal>
   );
 }
 

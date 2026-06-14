@@ -27,6 +27,7 @@ from .routes import leaves as leaves_routes
 from .routes import payroll as payroll_routes
 from .routes import privacy as privacy_routes
 from .routes import features as features_routes
+from .routes import students as students_routes
 
 
 @asynccontextmanager
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     api.include_router(payroll_routes.router)
     api.include_router(privacy_routes.router)
     api.include_router(features_routes.router)
+    api.include_router(students_routes.router)
 
     @api.get("/health")
     async def health():
