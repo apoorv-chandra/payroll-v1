@@ -50,7 +50,29 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Jun 14, 2026 — v11 / Permission framework + Students module)
+**Major release — multi-product on one codebase.**
+- **Feature-permission framework** — global `features` catalog (`payroll`, `students`), per-employer `enabled_features`, per-employee `feature_permissions`. Three-tier permission cascade with auto-revoke when a parent layer drops a feature. Super-admin grant auto-widens the employer-admin user; employees stay opt-in.
+- **Launchpad** — new `/launchpad` route. Users with 1 module skip it (auto-redirect to that module's landing path). Users with 2+ modules see a tile picker. Empty-state for 0 modules.
+- **Login redirect** — now feature-aware. Login fetches `/api/me/features`, then routes (0 → launchpad empty, 1 → module home, 2+ → launchpad).
+- **Super-admin UI** — new "Manage modules" button on each employer card (`AdminApp.jsx`).
+- **Employer UI** — new grid icon per employee row → modal to grant/revoke modules (`EmployerApp.jsx`). Employer can only offer modules their employer (tenant) is sold.
+- **Students module — backend**:
+  - 24+ new endpoints under `/api/students/*` guarded by `require_feature("students")`.
+  - GridFS-backed file storage (per-tenant bucket).
+  - 12 file slots with Pillow + pikepdf compression and magic-byte MIME sniffing (defends vs spoofed uploads).
+  - Aadhaar masked in API responses; raw value never returned.
+  - HMAC-signed file-download tokens (`security.sign_file_token`) for Google Sheets cells — fixes the original Node app's "ObjectId is unguessable" anti-pattern.
+  - Google Sheets v4 + Drive v3 sync via service-account (best-effort, never blocks CRUD). Master spreadsheet pre-shared with `admission-data@vital-petal-497816-b6.iam.gserviceaccount.com`.
+  - Soft-delete (`deleted_at`) instead of permanent removal — Sheets row gets strike-through.
+  - Auto-incrementing `serial_no` per tenant.
+- **Students module — frontend** (`StudentsApp.jsx`): list + search + add modal, detail page with editable profile + 12-slot file manager, Sheets-configure banner, role-aware visibility (employees see only their own, employer/super_admin see all).
+- **Tests**: `/app/backend/tests/test_features_framework.py` (3) + `test_iteration10_features_students.py` (22). **All 25 green.**
+- **Backward compat**: existing NoraTech employer defaulted to `enabled_features=["payroll"]`. Existing payroll flows untouched. v8/v9/v10 fixes regression-PASS.
+
 ## Implemented (Jun 6, 2026 — v10 / Location toggle UX hotfix)
+
+
 **v10 hotfix** (follow-up to user report: "Location toggle not working on mobile")
 - **Decoupled consent toggle from browser permission** — `PrivacyScreen.update()` now persists the consent via `PUT /api/me/privacy/consents` **first**, then triggers `requestGeoPermission()` as a best-effort afterwards. Previously, a failed/denied/timed-out permission call short-circuited the toggle (it appeared "stuck" on mobile). The toggle now flips within ~200ms regardless of permission state.
 - **Live browser-permission status indicator** — new `GeoPermissionStatusRow` renders below the consent toggle when location consent is ON. Shows `Granted / Blocked / Not asked yet / Unsupported` via `navigator.permissions.query`, plus a `Test location` button that explicitly invokes the OS prompt and surfaces a contextual hint when blocked.

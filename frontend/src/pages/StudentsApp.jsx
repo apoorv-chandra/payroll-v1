@@ -48,8 +48,12 @@ const FILE_SLOTS = [
 // ===========================================================================
 export default function StudentsApp() {
   const { user, logout } = useAuth();
-  const { features, has, loading: featLoading } = useFeatures();
+  const { features, has, loading: featLoading, reload } = useFeatures();
   const navigate = useNavigate();
+
+  // Ensure features are loaded before children render — avoids a 403 race
+  // where StudentsList fires GET /api/students before the cache hydrates.
+  useEffect(() => { if (featLoading) reload(); /* eslint-disable-next-line */ }, []);
 
   if (featLoading) {
     return <div className="min-h-screen flex items-center justify-center"><Spinner /></div>;
