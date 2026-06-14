@@ -50,7 +50,13 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Jun 14, 2026 — v11.1 / Students module refactor)
+- **Split `routes/students.py` (587 lines)** → 4 focused files (avg ~167 lines): `services/students_service.py` (shared helpers + background sync), `routes/students_crud.py` (CRUD + search), `routes/students_files.py` (upload/download/delete), `routes/students_sheets.py` (configure/info). One-router-per-concern.
+- **Sheets sync → FastAPI BackgroundTasks**: `sync_to_sheets()` is now scheduled via `background_tasks.add_task(...)` on every CUD path. Measured **POST /api/students from ~1–3s → ~200ms** because Google API latency no longer gates the response. Background-task wrapper has a defensive try/except so a Sheets outage can never propagate into the event loop.
+- All 6/6 backend regression tests + live smoke pass post-refactor; zero API contract changes (paths/payloads identical).
+
 ## Implemented (Jun 14, 2026 — v11 / Permission framework + Students module)
+
 **Major release — multi-product on one codebase.**
 - **Feature-permission framework** — global `features` catalog (`payroll`, `students`), per-employer `enabled_features`, per-employee `feature_permissions`. Three-tier permission cascade with auto-revoke when a parent layer drops a feature. Super-admin grant auto-widens the employer-admin user; employees stay opt-in.
 - **Launchpad** — new `/launchpad` route. Users with 1 module skip it (auto-redirect to that module's landing path). Users with 2+ modules see a tile picker. Empty-state for 0 modules.
