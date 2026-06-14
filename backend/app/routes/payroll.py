@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..db import db, tenant_db
+from ..db import db, employer_db
 from ..deps import get_current_user, require_employer_or_admin, require_role
 from ..schemas import (
     GeneratePayrollRequest,
@@ -60,13 +60,13 @@ def _months():
 # ---------- Generate ----------
 @router.post("/generate")
 async def generate_payroll(req: GeneratePayrollRequest, user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     if not _can_run_payroll(user):
         raise HTTPException(status_code=403, detail="Only employer or accountant can generate payroll")
-    tenant = await db.tenants.find_one({"_id": user["tenant_id"]})
+    tenant = await db.employers.find_one({"_id": user["employer_id"]})
     working_days = (tenant or {}).get("settings", {}).get("attendance", {}).get("working_days_per_month", 26)
     existing = await tdb.payroll_runs.find_one({
-        "tenant_id": user["tenant_id"], "month": req.month, "year": req.year
+        "employer_id": user["employer_id"], "month": req.month, "year": req.year
     })
     if existing and existing["status"] in ("approved", "disbursed"):
         raise HTTPException(
@@ -79,7 +79,7 @@ async def generate_payroll(req: GeneratePayrollRequest, user: dict = Depends(get
     if not existing:
         await tdb.payroll_runs.insert_one({
             "_id": run_id,
-            "tenant_id": user["tenant_id"],
+            "employer_id": user["employer_id"],
             "month": req.month,
             "year": req.year,
             "status": "draft",
@@ -100,16 +100,16 @@ async def generate_payroll(req: GeneratePayrollRequest, user: dict = Depends(get
         await tdb.payroll_items.delete_many({"payroll_run_id": run_id})
 
     items = []
-    async for emp in tdb.employees.find({"tenant_id": user["tenant_id"], "active": True}):
+    async for emp in tdb.employees.find({"employer_id": user["employer_id"], "active": True}):
         att = await tdb.attendance.count_documents({
-            "tenant_id": user["tenant_id"],
+            "employer_id": user["employer_id"],
             "employee_id": emp["_id"],
             "date": {"$gte": start.isoformat(), "$lt": end.isoformat()},
             "status": "present",
         })
         paid_leaves = 0.0
         async for la in tdb.leave_applications.find({
-            "tenant_id": user["tenant_id"],
+            "employer_id": user["employer_id"],
             "employee_id": emp["_id"],
             "status": "approved",
             "from_date": {"$lt": end.isoformat()},
@@ -130,7 +130,7 @@ async def generate_payroll(req: GeneratePayrollRequest, user: dict = Depends(get
         items.append({
             "_id": gen_id(),
             "payroll_run_id": run_id,
-            "tenant_id": user["tenant_id"],
+            "employer_id": user["employer_id"],
             "employee_id": emp["_id"],
             "employee_name": emp["name"],
             "emp_code": emp["emp_code"],
@@ -148,7 +148,7 @@ async def generate_payroll(req: GeneratePayrollRequest, user: dict = Depends(get
         })
     if items:
         await tdb.payroll_items.insert_many(items)
-    await audit(user["tenant_id"], user["_id"], "payroll.generate", run_id, {"month": req.month, "year": req.year, "count": len(items)})
+    await audit(user["employer_id"], user["_id"], "payroll.generate", run_id, {"month": req.month, "year": req.year, "count": len(items)})
     return {"id": run_id, "items": len(items)}
 
 
@@ -160,9 +160,9 @@ async def list_runs(user: dict = Depends(get_current_user)):
     # _can_run_payroll covers employer AND accountant-elevated employees.
     if not _can_run_payroll(user):
         raise HTTPException(status_code=403, detail="Forbidden")
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     out = []
-    async for r in tdb.payroll_runs.find({"tenant_id": user["tenant_id"]}).sort([("year", -1), ("month", -1)]):
+    async for r in tdb.payroll_runs.find({"employer_id": user["employer_id"]}).sort([("year", -1), ("month", -1)]):
         r["id"] = r["_id"]
         r["items_count"] = await tdb.payroll_items.count_documents({"payroll_run_id": r["_id"]})
         out.append({k: v for k, v in r.items() if k != "_id"})
@@ -171,11 +171,11 @@ async def list_runs(user: dict = Depends(get_current_user)):
 
 @router.get("/runs/{run_id}")
 async def get_run(run_id: str, user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     r = await tdb.payroll_runs.find_one({"_id": run_id})
     if not r:
         raise HTTPException(status_code=404, detail="Not found")
-    if user["role"] != "super_admin" and r["tenant_id"] != user.get("tenant_id"):
+    if user["role"] != "super_admin" and r["employer_id"] != user.get("employer_id"):
         raise HTTPException(status_code=403, detail="Forbidden")
     items = []
     async for it in tdb.payroll_items.find({"payroll_run_id": run_id}).sort("emp_code", 1):
@@ -190,11 +190,11 @@ async def edit_deductions(
     req: PayrollItemDeductionUpdate,
     user: dict = Depends(get_current_user),
 ):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     if not _can_run_payroll(user):
         raise HTTPException(status_code=403, detail="Forbidden")
     it = await tdb.payroll_items.find_one({"_id": item_id})
-    if not it or it["tenant_id"] != user["tenant_id"]:
+    if not it or it["employer_id"] != user["employer_id"]:
         raise HTTPException(status_code=404, detail="Not found")
     run = await tdb.payroll_runs.find_one({"_id": it["payroll_run_id"]})
     if run["status"] not in ("draft",):
@@ -205,7 +205,7 @@ async def edit_deductions(
         {"_id": item_id},
         {"$set": {"deductions": deductions, "deduction_note": req.note, "net_salary": net}},
     )
-    await audit(user["tenant_id"], user["_id"], "payroll.deduction.edit", item_id, {"d": deductions})
+    await audit(user["employer_id"], user["_id"], "payroll.deduction.edit", item_id, {"d": deductions})
     return {"ok": True, "deductions": deductions, "net_salary": net}
 
 
@@ -215,10 +215,10 @@ async def submit_for_approval(
     req: PayrollSubmitRequest,
     user: dict = Depends(get_current_user),
 ):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     if not _can_run_payroll(user):
         raise HTTPException(status_code=403, detail="Forbidden")
-    r = await tdb.payroll_runs.find_one({"_id": run_id, "tenant_id": user["tenant_id"]})
+    r = await tdb.payroll_runs.find_one({"_id": run_id, "employer_id": user["employer_id"]})
     if not r:
         raise HTTPException(status_code=404, detail="Not found")
     if r["status"] != "draft":
@@ -232,7 +232,7 @@ async def submit_for_approval(
             "submission_note": req.note,
         }},
     )
-    await audit(user["tenant_id"], user["_id"], "payroll.submit", run_id)
+    await audit(user["employer_id"], user["_id"], "payroll.submit", run_id)
     return {"ok": True, "status": "pending_approval"}
 
 
@@ -243,8 +243,8 @@ async def approve_run(
     req: PayrollDecision,
     user: dict = Depends(require_role("employer")),
 ):
-    tdb = tenant_db(user["tenant_id"])
-    r = await tdb.payroll_runs.find_one({"_id": run_id, "tenant_id": user["tenant_id"]})
+    tdb = employer_db(user["employer_id"])
+    r = await tdb.payroll_runs.find_one({"_id": run_id, "employer_id": user["employer_id"]})
     if not r:
         raise HTTPException(status_code=404, detail="Not found")
     if r["status"] not in ("draft", "pending_approval"):
@@ -261,7 +261,7 @@ async def approve_run(
             "approval_note": req.note,
         }},
     )
-    await audit(user["tenant_id"], user["_id"], f"payroll.{new_status}", run_id)
+    await audit(user["employer_id"], user["_id"], f"payroll.{new_status}", run_id)
 
     # WhatsApp salary notification (per-employee).
     if new_status == "approved":
@@ -288,13 +288,13 @@ async def approve_run(
 async def delete_run(
     run_id: str, user: dict = Depends(require_role("employer"))
 ):
-    tdb = tenant_db(user["tenant_id"])
-    r = await tdb.payroll_runs.find_one({"_id": run_id, "tenant_id": user["tenant_id"]})
+    tdb = employer_db(user["employer_id"])
+    r = await tdb.payroll_runs.find_one({"_id": run_id, "employer_id": user["employer_id"]})
     if not r:
         raise HTTPException(status_code=404, detail="Not found")
     await tdb.payroll_items.delete_many({"payroll_run_id": run_id})
     await tdb.payroll_runs.delete_one({"_id": run_id})
-    await audit(user["tenant_id"], user["_id"], "payroll.delete", run_id, {"prev_status": r.get("status")})
+    await audit(user["employer_id"], user["_id"], "payroll.delete", run_id, {"prev_status": r.get("status")})
     return {"ok": True}
 
 
@@ -303,11 +303,11 @@ async def delete_run(
 async def disburse_item(
     item_id: str, req: DisburseRequest, user: dict = Depends(get_current_user)
 ):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     if not _can_disburse(user):
         raise HTTPException(status_code=403, detail="Forbidden")
     it = await tdb.payroll_items.find_one({"_id": item_id})
-    if not it or it["tenant_id"] != user["tenant_id"]:
+    if not it or it["employer_id"] != user["employer_id"]:
         raise HTTPException(status_code=404, detail="Not found")
     run = await tdb.payroll_runs.find_one({"_id": it["payroll_run_id"]})
     if run["status"] not in ("approved", "disbursed"):
@@ -325,14 +325,14 @@ async def disburse_item(
     })
     if pending == 0:
         await tdb.payroll_runs.update_one({"_id": run["_id"]}, {"$set": {"status": "disbursed"}})
-    await audit(user["tenant_id"], user["_id"], "payroll.disburse", item_id, disb)
+    await audit(user["employer_id"], user["_id"], "payroll.disburse", item_id, disb)
     return {"ok": True, "disbursement": disb}
 
 
 # ---------- Salary slip PDF ----------
 @router.get("/items/{item_id}/slip")
 async def download_slip(item_id: str, user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     it = await tdb.payroll_items.find_one({"_id": item_id})
     if not it:
         raise HTTPException(status_code=404, detail="Not found")
@@ -340,13 +340,13 @@ async def download_slip(item_id: str, user: dict = Depends(get_current_user)):
         if it["employee_id"] != user.get("employee_id"):
             raise HTTPException(status_code=403, detail="Forbidden")
     elif user["role"] == "employer":
-        if it["tenant_id"] != user["tenant_id"]:
+        if it["employer_id"] != user["employer_id"]:
             raise HTTPException(status_code=403, detail="Forbidden")
     elif user["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Forbidden")
     run = await tdb.payroll_runs.find_one({"_id": it["payroll_run_id"]})
     employee = await tdb.employees.find_one({"_id": it["employee_id"]})
-    tenant = await db.tenants.find_one({"_id": it["tenant_id"]})
+    tenant = await db.employers.find_one({"_id": it["employer_id"]})
     pdf = build_salary_slip_pdf(tenant, employee, it, run)
     fn = f"salary-slip-{employee['emp_code']}-{run['year']}-{run['month']:02d}.pdf"
     return StreamingResponse(
@@ -358,10 +358,10 @@ async def download_slip(item_id: str, user: dict = Depends(get_current_user)):
 
 @router.get("/my")
 async def my_payslips(user: dict = Depends(require_role("employee"))):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     out = []
     async for it in tdb.payroll_items.find({
-        "tenant_id": user["tenant_id"], "employee_id": user["employee_id"]
+        "employer_id": user["employer_id"], "employee_id": user["employee_id"]
     }).sort("created_at", -1):
         run = await tdb.payroll_runs.find_one({"_id": it["payroll_run_id"]})
         if run and run["status"] in ("approved", "disbursed"):
@@ -376,7 +376,7 @@ async def my_payslips(user: dict = Depends(require_role("employee"))):
 # ---------- Accountant summary view ----------
 @router.get("/runs/{run_id}/summary")
 async def run_summary(run_id: str, user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     """Read-only Name + Net Salary summary, scoped to the same tenant.
 
     Available to anyone in the tenant who can run payroll OR was the
@@ -385,7 +385,7 @@ async def run_summary(run_id: str, user: dict = Depends(get_current_user)):
     r = await tdb.payroll_runs.find_one({"_id": run_id})
     if not r:
         raise HTTPException(status_code=404, detail="Not found")
-    if user["role"] != "super_admin" and r["tenant_id"] != user.get("tenant_id"):
+    if user["role"] != "super_admin" and r["employer_id"] != user.get("employer_id"):
         raise HTTPException(status_code=403, detail="Forbidden")
     items = []
     total = 0.0

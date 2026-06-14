@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ..db import tenant_db
+from ..db import employer_db
 from ..deps import require_feature
 from ..services.audit import audit
 from ..services.students_service import (
@@ -62,7 +62,7 @@ async def list_students(
     limit: int = 50,
     user: dict = Depends(require_feature("students")),
 ):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     flt: dict = {"deleted_at": None}
     if user["role"] not in ("super_admin", "employer"):
         flt["owner_user_id"] = user["_id"]
@@ -88,7 +88,7 @@ async def create_student(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_feature("students")),
 ):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     sid = gen_id()
     # Auto-serial: next number per tenant. Race-free as long as MongoDB
     # processes inserts serially in the same shard — good enough for our scale.
@@ -96,7 +96,7 @@ async def create_student(
     next_n = ((last or {}).get("serial_no_int") or 0) + 1
     doc = {
         "_id": sid,
-        "tenant_id": user["tenant_id"],
+        "employer_id": user["employer_id"],
         "owner_user_id": user["_id"],
         "owner_name": user.get("name") or user.get("email"),
         "serial_no_int": next_n,
@@ -109,7 +109,7 @@ async def create_student(
         **payload.model_dump(),
     }
     await tdb.students.insert_one(doc)
-    await audit(user["tenant_id"], user["_id"], "student.create", sid, {"name": payload.name})
+    await audit(user["employer_id"], user["_id"], "student.create", sid, {"name": payload.name})
 
     # Sheets sync runs in the background — never blocks the API response.
     background_tasks.add_task(sync_to_sheets, user, doc, "create")
@@ -121,7 +121,7 @@ async def get_student(
     student_id: str,
     user: dict = Depends(require_feature("students")),
 ):
-    s = await get_student_or_404(user["tenant_id"], student_id)
+    s = await get_student_or_404(user["employer_id"], student_id)
     if not can_access(user, s):
         raise HTTPException(status_code=403, detail="Forbidden")
     return public_student(s)
@@ -134,8 +134,8 @@ async def update_student(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_feature("students")),
 ):
-    tdb = tenant_db(user["tenant_id"])
-    s = await get_student_or_404(user["tenant_id"], student_id)
+    tdb = employer_db(user["employer_id"])
+    s = await get_student_or_404(user["employer_id"], student_id)
     if not can_access(user, s):
         raise HTTPException(status_code=403, detail="Forbidden")
     upd = {
@@ -146,7 +146,7 @@ async def update_student(
     }
     await tdb.students.update_one({"_id": student_id}, {"$set": upd})
     s2 = await tdb.students.find_one({"_id": student_id})
-    await audit(user["tenant_id"], user["_id"], "student.update", student_id, {"name": payload.name})
+    await audit(user["employer_id"], user["_id"], "student.update", student_id, {"name": payload.name})
     background_tasks.add_task(sync_to_sheets, user, s2, "update")
     return public_student(s2)
 
@@ -157,13 +157,13 @@ async def delete_student(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_feature("students")),
 ):
-    tdb = tenant_db(user["tenant_id"])
-    s = await get_student_or_404(user["tenant_id"], student_id)
+    tdb = employer_db(user["employer_id"])
+    s = await get_student_or_404(user["employer_id"], student_id)
     if not can_access(user, s):
         raise HTTPException(status_code=403, detail="Forbidden")
     await tdb.students.update_one(
         {"_id": student_id}, {"$set": {"deleted_at": now_utc()}}
     )
-    await audit(user["tenant_id"], user["_id"], "student.delete", student_id, {})
+    await audit(user["employer_id"], user["_id"], "student.delete", student_id, {})
     background_tasks.add_task(sync_to_sheets, user, s, "delete")
     return {"ok": True}

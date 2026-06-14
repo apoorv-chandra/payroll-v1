@@ -99,7 +99,7 @@ function Overview() {
       api.get("/employees"),
       api.get("/leave/applications", { params: { status_f: "pending" } }),
       api.get("/attendance/history"),
-      api.get("/tenant/settings"),
+      api.get("/employer/settings"),
     ]).then(([a, b, c, d]) => { setEmps(a.data); setLeaves(b.data); setAtt(c.data); setTenant(d.data); }).catch(() => {});
   }, []);
   const today = new Date().toISOString().slice(0, 10);
@@ -1097,7 +1097,7 @@ function SettingsPage() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = async () => { try { setT((await api.get("/tenant/settings")).data); } catch { setT(null); } };
+  const load = async () => { try { setT((await api.get("/employer/settings")).data); } catch { setT(null); } };
   useEffect(() => { load(); }, []);
 
   if (!t) return <Spinner />;
@@ -1106,7 +1106,7 @@ function SettingsPage() {
 
   const save = async (payload) => {
     setBusy(true); setErr("");
-    try { await api.put("/tenant/settings", payload); load(); } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
+    try { await api.put("/employer/settings", payload); load(); } catch (e) { setErr(fmtErr(e)); } finally { setBusy(false); }
   };
 
   return (

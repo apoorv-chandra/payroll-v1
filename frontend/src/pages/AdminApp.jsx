@@ -32,9 +32,9 @@ function Overview() {
   useEffect(() => { api.get("/admin/stats").then((r) => setStats(r.data)).catch(() => setStats({})); }, []);
   return (
     <div>
-      <PageHeader title="Platform overview" subtitle="Tenants, employees, attendance & active payroll runs across the platform." />
+      <PageHeader title="Platform overview" subtitle="Employers, employees, attendance & active payroll runs across the platform." />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatTile label="Tenants" value={stats?.tenants ?? "—"} icon={Building2} />
+        <StatTile label="Employers" value={stats?.tenants ?? stats?.employers ?? "—"} icon={Building2} />
         <StatTile label="Employees" value={stats?.employees ?? "—"} icon={Users} />
         <StatTile label="Attended Today" value={stats?.attendance_today ?? "—"} icon={Briefcase} />
         <StatTile label="Open Payrolls" value={stats?.active_payrolls ?? "—"} icon={ScrollText} />
@@ -43,7 +43,7 @@ function Overview() {
       <Card className="mt-6">
         <h3 className="font-semibold text-ink mb-2">How this works</h3>
         <ol className="list-decimal pl-5 text-sm text-gray-700 space-y-1.5">
-          <li>Onboard an <b>Employer (tenant)</b> from the Employers page — this creates an isolated workspace.</li>
+          <li>Onboard an <b>Employer</b> from the Employers page — this creates an isolated workspace.</li>
           <li>Share the employer admin&apos;s email & password with them.</li>
           <li>The employer signs in, configures attendance + leave types, adds employees.</li>
           <li>Employees mark attendance from a phone (PWA), apply leaves, and download salary slips.</li>
@@ -94,8 +94,8 @@ function Employers() {
   return (
     <div>
       <PageHeader
-        title="Employers (Tenants)"
-        subtitle="Independent workspaces. Data is fully isolated between tenants."
+        title="Employers"
+        subtitle="Independent workspaces. Data is fully isolated between employers."
         action={<Button onClick={() => setOpen(true)} data-testid="add-employer-button"><Plus className="h-4 w-4" />Add employer</Button>}
       />
       {list === null ? (
@@ -287,7 +287,7 @@ function PlatformSettings() {
   if (!s) return <Spinner />;
   return (
     <div>
-      <PageHeader title="Platform settings" subtitle="Global feature flags. Affect every tenant on this installation." />
+      <PageHeader title="Platform settings" subtitle="Global feature flags. Affect every employer on this installation." />
       <div className="space-y-4">
         <Card>
           <h3 className="font-semibold text-ink mb-3">Notifications</h3>
@@ -322,7 +322,7 @@ function Audit() {
   useEffect(() => { api.get("/admin/audit").then((r) => setItems(r.data)).catch(() => setItems([])); }, []);
   return (
     <div>
-      <PageHeader title="Audit log" subtitle="Last 100 events across all tenants." />
+      <PageHeader title="Audit log" subtitle="Last 100 events across all employers." />
       {items === null ? <Spinner /> : items.length === 0 ? (
         <Empty icon={ClipboardList} title="No events yet" />
       ) : (
@@ -333,7 +333,7 @@ function Audit() {
                 <tr className="text-left text-xs uppercase tracking-wider text-gray-500">
                   <th className="py-3 px-4">When</th>
                   <th className="py-3 px-4">Action</th>
-                  <th className="py-3 px-4">Tenant</th>
+                  <th className="py-3 px-4">Employer</th>
                   <th className="py-3 px-4">Target</th>
                 </tr>
               </thead>
@@ -342,7 +342,7 @@ function Audit() {
                   <tr key={a.id} className="border-t border-gray-100">
                     <td className="py-3 px-4 text-gray-700">{fmtDate(a.created_at)}</td>
                     <td className="py-3 px-4 font-mono text-xs">{a.action}</td>
-                    <td className="py-3 px-4 text-gray-600">{a.tenant_id ? a.tenant_id.slice(0, 8) : "—"}</td>
+                    <td className="py-3 px-4 text-gray-600">{a.employer_id ? a.employer_id.slice(0, 8) : "—"}</td>
                     <td className="py-3 px-4 text-gray-600">{a.target ? String(a.target).slice(0, 12) : "—"}</td>
                   </tr>
                 ))}

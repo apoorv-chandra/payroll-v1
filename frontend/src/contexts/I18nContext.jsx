@@ -85,7 +85,7 @@ const DICTS = {
     },
     admin: {
       platform_overview: "Platform overview",
-      tenants: "Tenants", employees: "Employees",
+      tenants: "Employers", employees: "Employees",
       attended_today: "Attended today",
       open_payrolls: "Open payrolls",
       add_employer: "Add employer",
@@ -186,7 +186,7 @@ const DICTS = {
     },
     admin: {
       platform_overview: "प्लेटफ़ॉर्म अवलोकन",
-      tenants: "संस्थाएँ", employees: "कर्मचारी",
+      tenants: "नियोक्ता", employees: "कर्मचारी",
       attended_today: "आज उपस्थित",
       open_payrolls: "खुले वेतन रन",
       add_employer: "नियोक्ता जोड़ें",

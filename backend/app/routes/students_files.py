@@ -11,7 +11,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
-from ..db import tenant_db
+from ..db import employer_db
 from ..deps import get_current_user_optional, require_feature
 from ..security import verify_file_token
 from ..services import gridfs as gridfs_svc
@@ -43,8 +43,8 @@ async def upload_student_file(
 ):
     if slot not in FILE_SLOTS:
         raise HTTPException(status_code=400, detail=f"Unknown slot: {slot}")
-    tdb = tenant_db(user["tenant_id"])
-    s = await get_student_or_404(user["tenant_id"], student_id)
+    tdb = employer_db(user["employer_id"])
+    s = await get_student_or_404(user["employer_id"], student_id)
     if not can_access(user, s):
         raise HTTPException(status_code=403, detail="Forbidden")
 
@@ -63,7 +63,7 @@ async def upload_student_file(
 
     compressed, final_mime = smart_compress(content, real_mime)
     file_id = await gridfs_svc.upload(
-        user["tenant_id"],
+        user["employer_id"],
         filename=file.filename or f"{student_id}-{slot}",
         content=compressed,
         content_type=final_mime,
@@ -73,7 +73,7 @@ async def upload_student_file(
     # Replace any existing file for this slot — delete the old to save space.
     old = (s.get("files") or {}).get(slot)
     if old and old.get("file_id"):
-        await gridfs_svc.delete(user["tenant_id"], old["file_id"])
+        await gridfs_svc.delete(user["employer_id"], old["file_id"])
 
     await tdb.students.update_one(
         {"_id": student_id},
@@ -100,14 +100,14 @@ async def delete_student_file(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_feature("students")),
 ):
-    tdb = tenant_db(user["tenant_id"])
-    s = await get_student_or_404(user["tenant_id"], student_id)
+    tdb = employer_db(user["employer_id"])
+    s = await get_student_or_404(user["employer_id"], student_id)
     if not can_access(user, s):
         raise HTTPException(status_code=403, detail="Forbidden")
     existing = (s.get("files") or {}).get(slot)
     if not existing:
         return {"ok": True}
-    await gridfs_svc.delete(user["tenant_id"], existing["file_id"])
+    await gridfs_svc.delete(user["employer_id"], existing["file_id"])
     await tdb.students.update_one(
         {"_id": student_id},
         {"$unset": {f"files.{slot}": ""}, "$set": {"updated_at": now_utc()}},
@@ -134,15 +134,15 @@ async def download_student_file(
         info = verify_file_token(t)
         if not info or info.get("file_id") != file_id:
             raise HTTPException(status_code=401, detail="Invalid file token")
-        tenant_id = info["tenant_id"]
+        employer_id = info["employer_id"]
     elif user:
-        tenant_id = user.get("tenant_id")
-        if not tenant_id:
+        employer_id = user.get("employer_id")
+        if not employer_id:
             raise HTTPException(status_code=400, detail="No tenant scope")
     else:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    meta = await gridfs_svc.get_metadata(tenant_id, file_id)
+    meta = await gridfs_svc.get_metadata(employer_id, file_id)
     if not meta:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -154,7 +154,7 @@ async def download_student_file(
         "X-Content-Type-Options": "nosniff",
     }
     return StreamingResponse(
-        gridfs_svc.stream_chunks(tenant_id, file_id),
+        gridfs_svc.stream_chunks(employer_id, file_id),
         media_type=meta["content_type"] or "application/octet-stream",
         headers=headers,
     )

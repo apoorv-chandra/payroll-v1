@@ -100,7 +100,7 @@ def test_06_login_employer_tenant1():
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["user"]["role"] == "employer"
-    assert d["user"]["tenant_id"] == state["tenant1_id"]
+    assert d["user"]["employer_id"] == state["tenant1_id"]
     state["t1_emp_token"] = d["access_token"]
 
 

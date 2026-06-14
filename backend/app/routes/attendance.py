@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..db import db, tenant_db
+from ..db import db, employer_db
 from ..deps import get_current_user, require_role
 from ..schemas import MarkAttendanceRequest, AttendanceDeleteRequest
 from ..utils import app_tz, gen_id, haversine_m, now_utc, today_iso, strip_id
@@ -15,12 +15,12 @@ from ..utils import app_tz, gen_id, haversine_m, now_utc, today_iso, strip_id
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 
 
-async def _payroll_finalized(tenant_id: str, the_date: str) -> bool:
+async def _payroll_finalized(employer_id: str, the_date: str) -> bool:
     """A month is locked once a payroll run is approved or disbursed."""
-    tdb = tenant_db(tenant_id)
+    tdb = employer_db(employer_id)
     d = date.fromisoformat(the_date)
     run = await tdb.payroll_runs.find_one({
-        "tenant_id": tenant_id,
+        "employer_id": employer_id,
         "month": d.month,
         "year": d.year,
         "status": {"$in": ["approved", "disbursed"]},
@@ -37,7 +37,7 @@ async def _max_backdate_days() -> int:
 async def mark_attendance(
     req: MarkAttendanceRequest, user: dict = Depends(require_role("employee"))
 ):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     emp_id = user.get("employee_id")
     if not emp_id:
         raise HTTPException(status_code=400, detail="No employee profile linked")
@@ -67,13 +67,13 @@ async def mark_attendance(
     if (req.latitude is not None or req.longitude is not None) and not consents.get("geo_location"):
         raise HTTPException(status_code=400, detail="Location consent not granted. Update your privacy preferences.")
 
-    if await _payroll_finalized(user["tenant_id"], target_date):
+    if await _payroll_finalized(user["employer_id"], target_date):
         raise HTTPException(
             status_code=400,
             detail="Payroll for this month has already been approved. Ask your employer to delete the payroll run first.",
         )
 
-    tenant = await db.tenants.find_one({"_id": user["tenant_id"]})
+    tenant = await db.employers.find_one({"_id": user["employer_id"]})
     att_cfg = (tenant or {}).get("settings", {}).get("attendance", {})
     geo = att_cfg.get("geo_fence", {}) or {}
 
@@ -94,7 +94,7 @@ async def mark_attendance(
     )
 
     existing = await tdb.attendance.find_one({
-        "tenant_id": user["tenant_id"],
+        "employer_id": user["employer_id"],
         "employee_id": emp_id,
         "date": target_date,
     })
@@ -109,7 +109,7 @@ async def mark_attendance(
             raise HTTPException(status_code=400, detail="Must check-in first")
         await tdb.attendance.insert_one({
             "_id": gen_id(),
-            "tenant_id": user["tenant_id"],
+            "employer_id": user["employer_id"],
             "employee_id": emp_id,
             "date": target_date,
             "check_in_at": now,
@@ -145,11 +145,11 @@ async def mark_attendance(
 async def delete_attendance(
     req: AttendanceDeleteRequest, user: dict = Depends(require_role("employee"))
 ):
-    tdb = tenant_db(user["tenant_id"])
-    if await _payroll_finalized(user["tenant_id"], req.date):
+    tdb = employer_db(user["employer_id"])
+    if await _payroll_finalized(user["employer_id"], req.date):
         raise HTTPException(status_code=400, detail="Payroll already approved for this month")
     await tdb.attendance.delete_one({
-        "tenant_id": user["tenant_id"],
+        "employer_id": user["employer_id"],
         "employee_id": user["employee_id"],
         "date": req.date,
     })
@@ -158,11 +158,11 @@ async def delete_attendance(
 
 @router.get("/today")
 async def attendance_today(user: dict = Depends(require_role("employee"))):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     emp_id = user["employee_id"]
     today = today_iso()
     rec = await tdb.attendance.find_one(
-        {"tenant_id": user["tenant_id"], "employee_id": emp_id, "date": today}
+        {"employer_id": user["employer_id"], "employee_id": emp_id, "date": today}
     )
     if not rec:
         return {"date": today, "marked": False}
@@ -176,7 +176,7 @@ async def attendance_history(
     employee_id: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     today = datetime.now(app_tz()).date()
     m = month or today.month
     y = year or today.year
@@ -185,12 +185,12 @@ async def attendance_history(
 
     if user["role"] == "employee":
         query = {
-            "tenant_id": user["tenant_id"],
+            "employer_id": user["employer_id"],
             "employee_id": user["employee_id"],
             "date": {"$gte": start, "$lt": end},
         }
     elif user["role"] == "employer":
-        query = {"tenant_id": user["tenant_id"], "date": {"$gte": start, "$lt": end}}
+        query = {"employer_id": user["employer_id"], "date": {"$gte": start, "$lt": end}}
         if employee_id:
             query["employee_id"] = employee_id
     else:
@@ -204,11 +204,11 @@ async def attendance_history(
 
 @router.get("/locked-months")
 async def locked_months(user: dict = Depends(require_role("employee"))):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     """Months for which payroll is approved/disbursed — UI hides edit affordances."""
     out = []
     async for r in tdb.payroll_runs.find({
-        "tenant_id": user["tenant_id"],
+        "employer_id": user["employer_id"],
         "status": {"$in": ["approved", "disbursed"]},
     }):
         out.append({"month": r["month"], "year": r["year"]})
@@ -217,7 +217,7 @@ async def locked_months(user: dict = Depends(require_role("employee"))):
 
 @router.get("/config")
 async def attendance_config(user: dict = Depends(require_role("employee"))):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     """Returns effective attendance requirements for THIS employee.
 
     Config IDs (legacy enumeration):
@@ -230,7 +230,7 @@ async def attendance_config(user: dict = Depends(require_role("employee"))):
       7 = Facial + Geo fence
       8 = Facial + Both
     """
-    tenant = await db.tenants.find_one({"_id": user["tenant_id"]}) or {}
+    tenant = await db.employers.find_one({"_id": user["employer_id"]}) or {}
     att = (tenant.get("settings") or {}).get("attendance") or {}
     geo_cfg = att.get("geo_fence") or {}
 
@@ -258,7 +258,7 @@ async def my_locations(user: dict = Depends(require_role("employee")), limit: in
     """Date-wise list of stored check-in/out coordinates for the logged-in
     employee. Only records where the employee had `geo_location` consent at
     mark time appear here (the mark route enforces that)."""
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     emp = await tdb.employees.find_one({"user_id": user["_id"]}) or {}
     if not emp:
         return []
@@ -274,7 +274,7 @@ async def employee_locations(
     """Employer / accountant view of one employee's date-wise locations."""
     if user["role"] != "employer" and "accountant" not in (user.get("elevated_roles") or []):
         raise HTTPException(status_code=403, detail="Forbidden")
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     emp = await tdb.employees.find_one({"_id": employee_id})
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")

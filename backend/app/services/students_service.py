@@ -12,7 +12,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from ..db import db, tenant_db
+from ..db import db, employer_db
 from ..security import sign_file_token
 from ..services import sheets as sheets_svc
 from ..utils import now_utc, strip_id
@@ -68,8 +68,8 @@ def public_student(student: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Access control
 # ---------------------------------------------------------------------------
-async def get_student_or_404(tenant_id: str, student_id: str) -> dict:
-    tdb = tenant_db(tenant_id)
+async def get_student_or_404(employer_id: str, student_id: str) -> dict:
+    tdb = employer_db(employer_id)
     s = await tdb.students.find_one({"_id": student_id, "deleted_at": None})
     if not s:
         raise HTTPException(status_code=404, detail="Student not found")
@@ -86,18 +86,18 @@ def can_access(user: dict, student: dict) -> bool:
 # ---------------------------------------------------------------------------
 # Signed file URL — embedded in Google Sheets cells
 # ---------------------------------------------------------------------------
-def signed_file_url(tenant_id: str, file_id: str, base_url: str = "") -> str:
-    token = sign_file_token(tenant_id, file_id, ttl_days=30)
+def signed_file_url(employer_id: str, file_id: str, base_url: str = "") -> str:
+    token = sign_file_token(employer_id, file_id, ttl_days=30)
     return f"{base_url}/api/students/files/{file_id}?t={token}"
 
 
-def build_file_links(tenant_id: str, student: dict, base_url: str = "") -> dict[str, str]:
+def build_file_links(employer_id: str, student: dict, base_url: str = "") -> dict[str, str]:
     """Return {slot: signed-download-url} for the Sheets row cell."""
     out: dict[str, str] = {}
     for slot, meta in (student.get("files") or {}).items():
         if not meta or not meta.get("file_id"):
             continue
-        out[slot] = signed_file_url(tenant_id, meta["file_id"], base_url)
+        out[slot] = signed_file_url(employer_id, meta["file_id"], base_url)
     return out
 
 
@@ -116,8 +116,8 @@ async def sync_to_sheets(user: dict, student: dict, op: str) -> None:
     try:
         if not sheets_svc.is_configured():
             return
-        tenant_id = user["tenant_id"]
-        tenant = await db.tenants.find_one({"_id": tenant_id})
+        employer_id = user["employer_id"]
+        tenant = await db.employers.find_one({"_id": employer_id})
         if not tenant:
             return
         sheet_id = tenant.get("students_sheet_id")
@@ -153,12 +153,12 @@ async def sync_to_sheets(user: dict, student: dict, op: str) -> None:
         # relative-to-host links; admins typically view from the same browser
         # session and the Bearer cookie covers them. The `?t=` token is the
         # belt-and-suspenders fallback.)
-        file_links = build_file_links(tenant_id, student)
+        file_links = build_file_links(employer_id, student)
 
         if op == "create":
             idx = await sheets_svc.safe_append(sheet_id, tab["tab_name"], student, file_links)
             if idx > 0:
-                tdb = tenant_db(tenant_id)
+                tdb = employer_db(employer_id)
                 await tdb.students.update_one(
                     {"_id": student["_id"]},
                     {"$set": {"google_sheet_row": idx, "updated_at": now_utc()}},
@@ -175,7 +175,7 @@ async def sync_to_sheets(user: dict, student: dict, op: str) -> None:
                     sheet_id, tab["tab_name"], student, file_links
                 )
                 if new_idx > 0:
-                    tdb = tenant_db(tenant_id)
+                    tdb = employer_db(employer_id)
                     await tdb.students.update_one(
                         {"_id": student["_id"]},
                         {"$set": {"google_sheet_row": new_idx}},

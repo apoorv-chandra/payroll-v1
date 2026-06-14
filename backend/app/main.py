@@ -17,6 +17,7 @@ from .services.features import (
     backfill_user_feature_permissions,
 )
 from .services.migrate import migrate_per_tenant_collections
+from .services.rename_to_employers import rename_tenants_to_employers
 from .utils import now_utc
 
 from .routes import auth as auth_routes
@@ -37,6 +38,7 @@ async def lifespan(app: FastAPI):
     await seed_super_admin()
     await seed_platform_settings()
     await backfill_signup_codes()
+    await rename_tenants_to_employers()
     await seed_features()
     await backfill_employer_features()
     await backfill_user_feature_permissions()

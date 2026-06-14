@@ -73,11 +73,11 @@ def test_grant_features_cascades_correctly():
     }
     r = requests.post(f"{API}/admin/employers", headers=_h(sa_token), json=payload)
     assert r.status_code == 200, r.text
-    tenant_id = r.json()["id"]
+    employer_id = r.json()["id"]
 
     # Default state: tenant has ['payroll'] only.
     r = requests.get(f"{API}/admin/employers", headers=_h(sa_token))
-    t_doc = next(t for t in r.json() if t["id"] == tenant_id)
+    t_doc = next(t for t in r.json() if t["id"] == employer_id)
     assert t_doc["enabled_features"] == ["payroll"]
 
     # Employer-admin can log in and only sees payroll.
@@ -90,7 +90,7 @@ def test_grant_features_cascades_correctly():
 
     # Super admin grants ['payroll','students'] to the tenant.
     r = requests.put(
-        f"{API}/admin/employers/{tenant_id}/features",
+        f"{API}/admin/employers/{employer_id}/features",
         headers=_h(sa_token),
         json={"codes": ["payroll", "students"]},
     )
@@ -104,7 +104,7 @@ def test_grant_features_cascades_correctly():
 
     # Revoke 'payroll' from the tenant — cascade revoke kicks in.
     r = requests.put(
-        f"{API}/admin/employers/{tenant_id}/features",
+        f"{API}/admin/employers/{employer_id}/features",
         headers=_h(sa_token),
         json={"codes": ["students"]},
     )
@@ -114,13 +114,13 @@ def test_grant_features_cascades_correctly():
 
     # Restore for cleanliness
     requests.put(
-        f"{API}/admin/employers/{tenant_id}/features",
+        f"{API}/admin/employers/{employer_id}/features",
         headers=_h(sa_token),
         json={"codes": ["payroll"]},
     )
 
     # Cleanup — delete the test employer.
-    requests.delete(f"{API}/admin/employers/{tenant_id}", headers=_h(sa_token))
+    requests.delete(f"{API}/admin/employers/{employer_id}", headers=_h(sa_token))
 
 
 def test_invalid_feature_codes_rejected_silently():
@@ -140,13 +140,13 @@ def test_invalid_feature_codes_rejected_silently():
             "admin_password": "PassWord!9",
         },
     )
-    tenant_id = r.json()["id"]
+    employer_id = r.json()["id"]
     r = requests.put(
-        f"{API}/admin/employers/{tenant_id}/features",
+        f"{API}/admin/employers/{employer_id}/features",
         headers=_h(sa_token),
         json={"codes": ["payroll", "NOT_A_FEATURE", "students", "  "]},
     )
     assert r.status_code == 200, r.text
     assert set(r.json()["enabled_features"]) == {"payroll", "students"}
 
-    requests.delete(f"{API}/admin/employers/{tenant_id}", headers=_h(sa_token))
+    requests.delete(f"{API}/admin/employers/{employer_id}", headers=_h(sa_token))

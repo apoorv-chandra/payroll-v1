@@ -80,7 +80,7 @@ async def seed_features() -> None:
 async def backfill_employer_features() -> None:
     """Existing employers (created before this framework) keep only payroll.
     This is an opt-in default — the super admin must explicitly add Students."""
-    await db.tenants.update_many(
+    await db.employers.update_many(
         {"enabled_features": {"$exists": False}},
         {"$set": {"enabled_features": ["payroll"]}},
     )
@@ -96,13 +96,13 @@ async def backfill_user_feature_permissions() -> None:
                 {"_id": u["_id"]}, {"$set": {"feature_permissions": []}}
             )
             continue
-        tenant_id = u.get("tenant_id")
-        if not tenant_id:
+        employer_id = u.get("employer_id")
+        if not employer_id:
             await db.users.update_one(
                 {"_id": u["_id"]}, {"$set": {"feature_permissions": []}}
             )
             continue
-        t = await db.tenants.find_one({"_id": tenant_id}, {"enabled_features": 1})
+        t = await db.employers.find_one({"_id": employer_id}, {"enabled_features": 1})
         enabled = (t or {}).get("enabled_features") or ["payroll"]
         await db.users.update_one(
             {"_id": u["_id"]}, {"$set": {"feature_permissions": list(enabled)}}
@@ -127,19 +127,19 @@ async def effective_features_for_user(user: dict) -> list[str]:
     if user.get("role") == "super_admin":
         return sorted(active_codes)
 
-    tenant_id = user.get("tenant_id")
-    if not tenant_id:
+    employer_id = user.get("employer_id")
+    if not employer_id:
         return []
 
-    t = await db.tenants.find_one({"_id": tenant_id}, {"enabled_features": 1})
+    t = await db.employers.find_one({"_id": employer_id}, {"enabled_features": 1})
     employer_enabled = set((t or {}).get("enabled_features") or [])
 
     user_perms = set(user.get("feature_permissions") or [])
     return sorted(active_codes & employer_enabled & user_perms)
 
 
-async def features_enabled_for_employer(tenant_id: str) -> list[str]:
-    t = await db.tenants.find_one({"_id": tenant_id}, {"enabled_features": 1})
+async def features_enabled_for_employer(employer_id: str) -> list[str]:
+    t = await db.employers.find_one({"_id": employer_id}, {"enabled_features": 1})
     return list((t or {}).get("enabled_features") or [])
 
 

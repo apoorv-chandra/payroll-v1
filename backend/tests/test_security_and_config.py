@@ -72,7 +72,7 @@ def test_setup_tenant_and_employee():
         "admin_name": "Cfg Admin",
     })
     assert r.status_code == 200, r.text
-    ctx.tenant_id = r.json()["id"]
+    ctx.employer_id = r.json()["id"]
     ctx.emp_email = f"cfg_{suffix}@testmail.com"
     er = _login(ctx.emp_email, "EmpPass123!")
     ctx.employer_token = er.json()["access_token"]

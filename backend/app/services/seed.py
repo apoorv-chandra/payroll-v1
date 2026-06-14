@@ -20,7 +20,7 @@ async def seed_super_admin() -> None:
             "password_hash": hash_password(settings.ADMIN_PASSWORD),
             "name": "Super Admin",
             "role": "super_admin",
-            "tenant_id": None,
+            "employer_id": None,
             "created_at": now_utc(),
         })
         logger.info("Seeded super admin %s", settings.ADMIN_EMAIL)
@@ -51,12 +51,12 @@ async def seed_platform_settings() -> None:
 
 async def backfill_signup_codes() -> None:
     """Allocate a signup_code for any legacy tenant that doesn't have one yet."""
-    cursor = db.tenants.find({"signup_code": {"$in": [None, ""]}})
+    cursor = db.employers.find({"signup_code": {"$in": [None, ""]}})
     async for t in cursor:
         for _ in range(8):
             candidate = gen_signup_code()
-            if not await db.tenants.find_one({"signup_code": candidate}):
-                await db.tenants.update_one({"_id": t["_id"]}, {"$set": {"signup_code": candidate}})
+            if not await db.employers.find_one({"signup_code": candidate}):
+                await db.employers.update_one({"_id": t["_id"]}, {"$set": {"signup_code": candidate}})
                 logger.info("Backfilled signup code for tenant %s", t.get("name"))
                 break
 

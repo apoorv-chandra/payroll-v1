@@ -15,7 +15,7 @@ from typing import AsyncIterator, Optional
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
-from ..db import tenant_db
+from ..db import employer_db
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 BUCKET_NAME = "student_files"
 
 
-def _bucket(tenant_id: str) -> AsyncIOMotorGridFSBucket:
+def _bucket(employer_id: str) -> AsyncIOMotorGridFSBucket:
     """Bucket lookup. Cheap to create — Motor caches the underlying db handle."""
-    return AsyncIOMotorGridFSBucket(tenant_db(tenant_id), bucket_name=BUCKET_NAME)
+    return AsyncIOMotorGridFSBucket(employer_db(employer_id), bucket_name=BUCKET_NAME)
 
 
 async def upload(
-    tenant_id: str,
+    employer_id: str,
     *,
     filename: str,
     content: bytes,
@@ -38,7 +38,7 @@ async def upload(
     metadata: dict | None = None,
 ) -> str:
     """Store bytes and return the file id (string)."""
-    fs = _bucket(tenant_id)
+    fs = _bucket(employer_id)
     file_id = await fs.upload_from_stream(
         filename=filename,
         source=content,
@@ -47,17 +47,17 @@ async def upload(
     return str(file_id)
 
 
-async def open_download(tenant_id: str, file_id: str):
+async def open_download(employer_id: str, file_id: str):
     """Open a GridFS stream for reading. Caller must `await stream.close()`."""
-    fs = _bucket(tenant_id)
+    fs = _bucket(employer_id)
     try:
         return await fs.open_download_stream(ObjectId(file_id))
     except Exception:
         return None
 
 
-async def get_metadata(tenant_id: str, file_id: str) -> Optional[dict]:
-    fs = _bucket(tenant_id)
+async def get_metadata(employer_id: str, file_id: str) -> Optional[dict]:
+    fs = _bucket(employer_id)
     try:
         cursor = fs.find({"_id": ObjectId(file_id)})
         async for f in cursor:
@@ -74,8 +74,8 @@ async def get_metadata(tenant_id: str, file_id: str) -> Optional[dict]:
     return None
 
 
-async def delete(tenant_id: str, file_id: str) -> bool:
-    fs = _bucket(tenant_id)
+async def delete(employer_id: str, file_id: str) -> bool:
+    fs = _bucket(employer_id)
     try:
         await fs.delete(ObjectId(file_id))
         return True
@@ -85,10 +85,10 @@ async def delete(tenant_id: str, file_id: str) -> bool:
 
 
 async def stream_chunks(
-    tenant_id: str, file_id: str, chunk_size: int = 64 * 1024
+    employer_id: str, file_id: str, chunk_size: int = 64 * 1024
 ) -> AsyncIterator[bytes]:
     """Async generator yielding chunks — suitable for FastAPI StreamingResponse."""
-    stream = await open_download(tenant_id, file_id)
+    stream = await open_download(employer_id, file_id)
     if stream is None:
         return
     try:

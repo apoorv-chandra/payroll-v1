@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from .db import db, tenant_db
+from .db import db, employer_db
 from .utils import app_tz, gen_id, now_utc
 
 logger = logging.getLogger(__name__)
@@ -32,10 +32,10 @@ async def monthly_payroll_auto_draft() -> None:
     target_month, target_year = last_day_prev.month, last_day_prev.year
     logger.info("[cron] payroll auto-draft for %s/%s", target_month, target_year)
 
-    async for tenant in db.tenants.find({"active": True}):
-        tdb = tenant_db(tenant["_id"])
+    async for tenant in db.employers.find({"active": True}):
+        tdb = employer_db(tenant["_id"])
         existing = await tdb.payroll_runs.find_one(
-            {"tenant_id": tenant["_id"], "month": target_month, "year": target_year}
+            {"employer_id": tenant["_id"], "month": target_month, "year": target_year}
         )
         if existing:
             continue
@@ -53,7 +53,7 @@ async def monthly_payroll_auto_draft() -> None:
         await tdb.payroll_runs.insert_one(
             {
                 "_id": run_id,
-                "tenant_id": tenant["_id"],
+                "employer_id": tenant["_id"],
                 "month": target_month,
                 "year": target_year,
                 "status": "draft",
@@ -65,10 +65,10 @@ async def monthly_payroll_auto_draft() -> None:
         )
         start, end = _month_dates(target_year, target_month)
         items = []
-        async for emp in tdb.employees.find({"tenant_id": tenant["_id"], "active": True}):
+        async for emp in tdb.employees.find({"employer_id": tenant["_id"], "active": True}):
             att = await tdb.attendance.count_documents(
                 {
-                    "tenant_id": tenant["_id"],
+                    "employer_id": tenant["_id"],
                     "employee_id": emp["_id"],
                     "date": {"$gte": start.isoformat(), "$lt": end.isoformat()},
                     "status": "present",
@@ -77,7 +77,7 @@ async def monthly_payroll_auto_draft() -> None:
             paid_leaves = 0.0
             async for la in tdb.leave_applications.find(
                 {
-                    "tenant_id": tenant["_id"],
+                    "employer_id": tenant["_id"],
                     "employee_id": emp["_id"],
                     "status": "approved",
                     "from_date": {"$lt": end.isoformat()},
@@ -101,7 +101,7 @@ async def monthly_payroll_auto_draft() -> None:
                 {
                     "_id": gen_id(),
                     "payroll_run_id": run_id,
-                    "tenant_id": tenant["_id"],
+                    "employer_id": tenant["_id"],
                     "employee_id": emp["_id"],
                     "employee_name": emp["name"],
                     "emp_code": emp["emp_code"],
@@ -123,7 +123,7 @@ async def monthly_payroll_auto_draft() -> None:
         await tdb.audit_logs.insert_one(
             {
                 "_id": gen_id(),
-                "tenant_id": tenant["_id"],
+                "employer_id": tenant["_id"],
                 "actor_id": "system",
                 "action": "payroll.auto_draft",
                 "target": run_id,
@@ -142,8 +142,8 @@ async def monthly_payroll_auto_draft() -> None:
 async def process_erasure_requests() -> None:
     """Hard-delete users whose erasure request has aged past the notice period."""
     now = now_utc()
-    async for tenant in db.tenants.find({}):
-        tdb = tenant_db(tenant["_id"])
+    async for tenant in db.employers.find({}):
+        tdb = employer_db(tenant["_id"])
         async for req in tdb.erasure_requests.find({"status": "pending"}):
             if req["scheduled_for"].replace(tzinfo=None) > now.replace(tzinfo=None):
                 continue
@@ -164,7 +164,7 @@ async def process_erasure_requests() -> None:
             await tdb.audit_logs.insert_one(
                 {
                     "_id": gen_id(),
-                    "tenant_id": tenant["_id"],
+                    "employer_id": tenant["_id"],
                     "actor_id": "system",
                     "action": "privacy.erasure_complete",
                     "target": user_id,

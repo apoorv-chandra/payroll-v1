@@ -23,11 +23,11 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # ---------- JWT ----------
-def create_access_token(user_id: str, role: str, tenant_id: str | None) -> str:
+def create_access_token(user_id: str, role: str, employer_id: str | None) -> str:
     payload = {
         "sub": user_id,
         "role": role,
-        "tenant_id": tenant_id,
+        "employer_id": employer_id,
         "exp": datetime.now(timezone.utc)
         + timedelta(hours=settings.JWT_EXPIRES_HOURS),
         "type": "access",
@@ -49,9 +49,9 @@ def new_captcha_token() -> str:
 # Used by the Students module to embed clickable file URLs in Google Sheets
 # cells without exposing GridFS ObjectIds as "secrets". A signed token binds
 # the file id + tenant + expiry — without it, the file endpoint returns 401.
-def sign_file_token(tenant_id: str, file_id: str, ttl_days: int = 30) -> str:
+def sign_file_token(employer_id: str, file_id: str, ttl_days: int = 30) -> str:
     payload = {
-        "tenant_id": tenant_id,
+        "employer_id": employer_id,
         "file_id": file_id,
         "exp": datetime.now(timezone.utc) + timedelta(days=ttl_days),
         "type": "file",

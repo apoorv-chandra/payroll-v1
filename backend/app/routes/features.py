@@ -61,32 +61,32 @@ async def my_effective_features(user: dict = Depends(get_current_user)):
 
 
 # ---------- Super-admin: grant modules to an employer ----------
-@router.put("/admin/employers/{tenant_id}/features")
+@router.put("/admin/employers/{employer_id}/features")
 async def set_employer_features(
-    tenant_id: str,
+    employer_id: str,
     payload: FeatureCodesPayload,
     user: dict = Depends(require_role("super_admin")),
 ):
-    tenant = await db.tenants.find_one({"_id": tenant_id})
+    tenant = await db.employers.find_one({"_id": employer_id})
     if not tenant:
         raise HTTPException(status_code=404, detail="Employer not found")
 
     codes = sanitise_feature_codes(payload.codes)
-    await db.tenants.update_one(
-        {"_id": tenant_id},
+    await db.employers.update_one(
+        {"_id": employer_id},
         {"$set": {"enabled_features": codes, "updated_at": now_utc()}},
     )
     # The employer-admin user is the owner of this tenant — they should ALWAYS
     # see every module the tenant has access to. Auto-widen their own row.
     await db.users.update_many(
-        {"tenant_id": tenant_id, "role": "employer"},
+        {"employer_id": employer_id, "role": "employer"},
         {"$set": {"feature_permissions": list(codes)}},
     )
     # For regular employees: cascade REVOKE only (trim to the new tenant set).
     # We never auto-grant new modules to employees; that stays an employer
     # decision via PUT /api/employees/{id}/features.
     await db.users.update_many(
-        {"tenant_id": tenant_id, "role": {"$nin": ["super_admin", "employer"]}},
+        {"employer_id": employer_id, "role": {"$nin": ["super_admin", "employer"]}},
         [{"$set": {
             "feature_permissions": {
                 "$setIntersection": [
@@ -96,8 +96,8 @@ async def set_employer_features(
             }
         }}],
     )
-    await audit(tenant_id, user["_id"], "tenant.features.set", tenant_id, {"codes": codes})
-    return {"tenant_id": tenant_id, "enabled_features": codes}
+    await audit(employer_id, user["_id"], "tenant.features.set", employer_id, {"codes": codes})
+    return {"employer_id": employer_id, "enabled_features": codes}
 
 
 # ---------- Employer: grant modules to one of their employees ----------
@@ -115,14 +115,14 @@ async def set_employee_features(
 
     # Employer can only grant within their own employer (tenant). Super admin
     # can edit any user.
-    if user["role"] == "employer" and target.get("tenant_id") != user.get("tenant_id"):
+    if user["role"] == "employer" and target.get("employer_id") != user.get("employer_id"):
         raise HTTPException(status_code=403, detail="Forbidden: cross-employer access")
 
-    tenant_id = target.get("tenant_id")
-    if not tenant_id:
+    employer_id = target.get("employer_id")
+    if not employer_id:
         raise HTTPException(status_code=400, detail="User has no employer")
 
-    tenant = await db.tenants.find_one({"_id": tenant_id}, {"enabled_features": 1})
+    tenant = await db.employers.find_one({"_id": employer_id}, {"enabled_features": 1})
     employer_enabled = set((tenant or {}).get("enabled_features") or [])
 
     requested = sanitise_feature_codes(payload.codes)
@@ -138,5 +138,5 @@ async def set_employee_features(
         {"_id": employee_user_id},
         {"$set": {"feature_permissions": requested, "updated_at": now_utc()}},
     )
-    await audit(tenant_id, user["_id"], "employee.features.set", employee_user_id, {"codes": requested})
+    await audit(employer_id, user["_id"], "employee.features.set", employee_user_id, {"codes": requested})
     return {"user_id": employee_user_id, "feature_permissions": requested}

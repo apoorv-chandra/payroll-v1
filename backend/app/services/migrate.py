@@ -14,18 +14,18 @@ from ..config import settings
 from ..db import (
     PER_TENANT_COLLECTIONS,
     db,
-    ensure_tenant_indexes,
+    ensure_employer_indexes,
     get_client,
-    tenant_db,
-    tenant_db_name,
+    employer_db,
+    employer_db_name,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _legacy_long_name(tenant_id: str) -> str:
+def _legacy_long_name(employer_id: str) -> str:
     """The pre-v8.1 naming convention (UUID with dashes stripped)."""
-    return f"{settings.DB_NAME}_t_{tenant_id.replace('-', '')}"
+    return f"{settings.DB_NAME}_t_{employer_id.replace('-', '')}"
 
 
 async def _move_collections_from(src_db, dst_db, label: str) -> int:
@@ -62,15 +62,15 @@ async def migrate_per_tenant_collections() -> None:
     client = get_client()
     existing_dbs = set(await client.list_database_names())
 
-    async for t in db.tenants.find({}):
+    async for t in db.employers.find({}):
         tid = t["_id"]
         try:
-            await ensure_tenant_indexes(tid)
+            await ensure_employer_indexes(tid)
         except Exception as e:    # noqa: BLE001
-            logger.warning("ensure_tenant_indexes failed for %s: %s", t.get("name"), e)
+            logger.warning("ensure_employer_indexes failed for %s: %s", t.get("name"), e)
 
-        new_db = tenant_db(tid)
-        new_name = tenant_db_name(tid)
+        new_db = employer_db(tid)
+        new_name = employer_db_name(tid)
 
         # 1. Move data from the LEGACY LONG-NAME tenant DB into the new short-name DB.
         legacy_name = _legacy_long_name(tid)
@@ -95,10 +95,10 @@ async def migrate_per_tenant_collections() -> None:
         if count_before == 0:
             continue
         async for doc in db[coll_name].find({}):
-            tid = doc.get("tenant_id")
+            tid = doc.get("employer_id")
             if not tid:
                 continue
-            tdb = tenant_db(tid)
+            tdb = employer_db(tid)
             existing = await tdb[coll_name].find_one({"_id": doc["_id"]})
             if existing is None:
                 try:

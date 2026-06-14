@@ -40,7 +40,7 @@ class SheetConfigurePayload(BaseModel):
 @router.get("/students/_sheets/info")
 async def sheets_info(user: dict = Depends(require_feature("students"))):
     """Tells the UI whether Sheets sync is configured + the master sheet URL."""
-    tenant = await db.tenants.find_one({"_id": user["tenant_id"]})
+    tenant = await db.employers.find_one({"_id": user["employer_id"]})
     return {
         "configured": sheets_svc.is_configured(),
         "service_account_email": sheets_svc.service_account_email(),
@@ -119,8 +119,8 @@ async def configure_master_sheet(
         logger.warning("Could not bootstrap Overview tab: %s", e)
 
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
-    await db.tenants.update_one(
-        {"_id": user["tenant_id"]},
+    await db.employers.update_one(
+        {"_id": user["employer_id"]},
         {"$set": {
             "students_sheet_id": sheet_id,
             "students_sheet_url": url,
@@ -128,7 +128,7 @@ async def configure_master_sheet(
             "students_sheet_configured_by": user["_id"],
         }},
     )
-    await audit(user["tenant_id"], user["_id"], "students.sheet.configure", sheet_id, {"url": url})
+    await audit(user["employer_id"], user["_id"], "students.sheet.configure", sheet_id, {"url": url})
     return {"ok": True, "master_sheet_id": sheet_id, "master_sheet_url": url}
 
 
@@ -136,13 +136,75 @@ async def configure_master_sheet(
 async def clear_master_sheet(user: dict = Depends(require_feature("students"))):
     if user["role"] not in ("super_admin", "employer"):
         raise HTTPException(status_code=403, detail="Only employer/super admin")
-    await db.tenants.update_one(
-        {"_id": user["tenant_id"]},
+    await db.employers.update_one(
+        {"_id": user["employer_id"]},
         {"$unset": {"students_sheet_id": "", "students_sheet_url": ""}},
     )
     # Also clear teacher tab bindings so they're rebuilt on next use.
     await db.users.update_many(
-        {"tenant_id": user["tenant_id"]},
+        {"employer_id": user["employer_id"]},
         {"$unset": {"students_sheet_tab": ""}},
     )
     return {"ok": True}
+
+
+@router.post("/students/_sheets/resync")
+async def resync_master_sheet(user: dict = Depends(require_feature("students"))):
+    """Re-push every active student row to the master sheet.
+
+    Useful when:
+      • the employer just bound a fresh spreadsheet (Overview tab empty),
+      • a Sheets outage caused drift between Mongo and the sheet,
+      • someone manually deleted rows / a tab.
+
+    We don't try to clean up stale rows in the sheet — appending is safe and
+    idempotent enough because we overwrite by index when `google_sheet_row`
+    is known. Rows are cleared from teacher state so each teacher gets a
+    fresh tab on first iteration.
+    """
+    if user["role"] not in ("super_admin", "employer"):
+        raise HTTPException(status_code=403, detail="Only employer/super admin")
+    if not sheets_svc.is_configured():
+        raise HTTPException(status_code=400, detail="Google Sheets sync is not configured")
+
+    tenant = await db.employers.find_one({"_id": user["employer_id"]})
+    if not tenant or not tenant.get("students_sheet_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="No master sheet bound yet. Configure it first.",
+        )
+
+    # Reset every teacher's tab binding + every student's row index so the
+    # next sync_to_sheets call rebuilds from scratch.
+    await db.users.update_many(
+        {"employer_id": user["employer_id"]},
+        {"$unset": {"students_sheet_tab": ""}},
+    )
+    from ..db import employer_db
+    from ..services.students_service import sync_to_sheets
+    tdb = employer_db(user["employer_id"])
+    await tdb.students.update_many(
+        {"deleted_at": None}, {"$set": {"google_sheet_row": None}}
+    )
+
+    # Walk every active student and push. We do this serially to avoid
+    # blasting Google's per-minute write quota.
+    count = 0
+    errors: list[str] = []
+    async for s in tdb.students.find({"deleted_at": None}).sort("serial_no_int", 1):
+        # Build a synthetic user dict for sync_to_sheets — it only reads
+        # employer_id from it.
+        try:
+            await sync_to_sheets({"employer_id": user["employer_id"]}, s, "create")
+            count += 1
+        except Exception as e:
+            errors.append(f"#{s.get('serial_no','?')} {s.get('name','?')}: {e}")
+
+    await audit(user["employer_id"], user["_id"], "students.sheet.resync", tenant["students_sheet_id"],
+                {"count": count, "errors": len(errors)})
+    return {
+        "ok": True,
+        "synced": count,
+        "errors": errors[:10],  # cap so the JSON stays small
+        "more_errors": max(0, len(errors) - 10),
+    }

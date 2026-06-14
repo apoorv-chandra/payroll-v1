@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Response, HTTPException, Depends
 
-from ..db import db, tenant_db
+from ..db import db, employer_db
 from ..deps import get_current_user
 from ..schemas import (
     LoginRequest,
@@ -70,7 +70,7 @@ async def login(payload: LoginRequest, response: Response):
             status_code=403,
             detail="Your account is awaiting employer approval. We'll email you once it's activated.",
         )
-    token = create_access_token(user["_id"], user["role"], user.get("tenant_id"))
+    token = create_access_token(user["_id"], user["role"], user.get("employer_id"))
     # Wipe the initial password on first successful login — from that point
     # forward the employer no longer needs (or sees) it.
     if user.get("initial_password_plain"):
@@ -110,7 +110,7 @@ async def signup(payload: SignupRequest):
     code = (payload.signup_code or "").upper().replace(" ", "").replace("-", "").strip()
     if len(code) < 6:
         raise HTTPException(status_code=400, detail="Invite code looks too short.")
-    tenant = await db.tenants.find_one({"signup_code": code, "active": True})
+    tenant = await db.employers.find_one({"signup_code": code, "active": True})
     if not tenant:
         raise HTTPException(status_code=404, detail="Invite code not recognised. Please check with your employer.")
 
@@ -136,16 +136,16 @@ async def signup(payload: SignupRequest):
         # Settings if they wish.
         "name": payload.name.strip(),
         "role": "employee",
-        "tenant_id": tenant["_id"],
+        "employer_id": tenant["_id"],
         "employee_id": emp_id,
         "elevated_roles": [],
         "phone": payload.phone,
         "disabled": True,                    # ← blocks login until approval
         "created_at": ts,
     })
-    await tenant_db(tenant["_id"]).employees.insert_one({
+    await employer_db(tenant["_id"]).employees.insert_one({
         "_id": emp_id,
-        "tenant_id": tenant["_id"],
+        "employer_id": tenant["_id"],
         "user_id": user_id,
         "emp_code": placeholder_code,
         "name": payload.name.strip(),
@@ -222,12 +222,12 @@ async def forgot_password(payload: dict):
     user = await db.users.find_one({"email": email})
     # Never reveal whether the email exists; return ok either way.
     if user and user["role"] == "employee":
-        tdb = tenant_db(user["tenant_id"])
+        tdb = employer_db(user["employer_id"])
         # Replace any earlier pending request for the same user.
         await tdb.password_reset_requests.delete_many({"user_id": user["_id"], "status": "pending"})
         await tdb.password_reset_requests.insert_one({
             "_id": gen_id(),
-            "tenant_id": user["tenant_id"],
+            "employer_id": user["employer_id"],
             "user_id": user["_id"],
             "email": email,
             "name": user.get("name"),

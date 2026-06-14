@@ -44,7 +44,7 @@ def test_02_create_tenant():
     }
     r = requests.post(f"{API}/admin/employers", headers=_hdr(state["admin_token"]), json=payload)
     assert r.status_code == 200, r.text
-    state["tenant_id"] = r.json()["id"]
+    state["employer_id"] = r.json()["id"]
     state["er_email"] = payload["admin_email"]
     state["er_password"] = payload["admin_password"]
 

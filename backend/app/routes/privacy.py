@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..db import db, tenant_db
+from ..db import db, employer_db
 from ..deps import get_current_user, require_role
 from ..services.audit import audit
 from ..utils import gen_id, now_utc
@@ -32,7 +32,7 @@ class ConsentSet(BaseModel):
 
 @router.get("/privacy")
 async def my_privacy(user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     """Return current consents + erasure request state."""
     consents_doc = await tdb.user_consents.find_one({"user_id": user["_id"]}) or {}
     consents = consents_doc.get("consents", {})
@@ -59,7 +59,7 @@ async def my_privacy(user: dict = Depends(get_current_user)):
 
 @router.put("/privacy/consents")
 async def set_consents(req: ConsentSet, user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     """Record / update user consents. Mandatory keys must be true."""
     payload = {k: bool(req.consents.get(k)) for k in CONSENT_KEYS}
     for k in MANDATORY_KEYS:
@@ -74,19 +74,19 @@ async def set_consents(req: ConsentSet, user: dict = Depends(get_current_user)):
             "$set": {
                 "consents": payload,
                 "updated_at": now_utc(),
-                "tenant_id": user.get("tenant_id"),
+                "employer_id": user.get("employer_id"),
             },
             "$setOnInsert": {"_id": gen_id(), "user_id": user["_id"], "created_at": now_utc()},
         },
         upsert=True,
     )
-    await audit(user.get("tenant_id"), user["_id"], "consent.update", user["_id"], payload)
+    await audit(user.get("employer_id"), user["_id"], "consent.update", user["_id"], payload)
     return {"ok": True, "consents": payload}
 
 
 @router.get("/data-export")
 async def export_my_data(user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     """DPDP §11 — Right to access. Returns every doc that contains this user's data."""
     user_id = user["_id"]
     employee_id = user.get("employee_id")
@@ -125,14 +125,14 @@ async def export_my_data(user: dict = Depends(get_current_user)):
         async for r in tdb.payroll_items.find({"employee_id": employee_id}).sort("created_at", -1):
             r.pop("_id", None)
             bundle["payroll_items"].append(r)
-    await audit(user.get("tenant_id"), user_id, "privacy.data_export", user_id)
+    await audit(user.get("employer_id"), user_id, "privacy.data_export", user_id)
     headers = {"Content-Disposition": f'attachment; filename="my-data-{user_id[:8]}.json"'}
     return JSONResponse(bundle, headers=headers)
 
 
 @router.post("/erasure-request")
 async def request_erasure(user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     """DPDP §12 — Right to correction & erasure. Schedules account deletion in 30 days."""
     if user["role"] == "super_admin":
         raise HTTPException(status_code=400, detail="Super Admin cannot erase via this flow")
@@ -145,25 +145,25 @@ async def request_erasure(user: dict = Depends(get_current_user)):
         {
             "_id": rid,
             "user_id": user["_id"],
-            "tenant_id": user.get("tenant_id"),
+            "employer_id": user.get("employer_id"),
             "employee_id": user.get("employee_id"),
             "requested_at": now_utc(),
             "scheduled_for": scheduled,
             "status": "pending",
         }
     )
-    await audit(user.get("tenant_id"), user["_id"], "privacy.erasure_request", user["_id"], {"scheduled_for": scheduled.isoformat()})
+    await audit(user.get("employer_id"), user["_id"], "privacy.erasure_request", user["_id"], {"scheduled_for": scheduled.isoformat()})
     return {"id": rid, "scheduled_for": scheduled.isoformat()}
 
 
 @router.delete("/erasure-request")
 async def cancel_erasure(user: dict = Depends(get_current_user)):
-    tdb = tenant_db(user["tenant_id"])
+    tdb = employer_db(user["employer_id"])
     res = await tdb.erasure_requests.update_one(
         {"user_id": user["_id"], "status": "pending"},
         {"$set": {"status": "cancelled", "cancelled_at": now_utc()}},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="No pending request")
-    await audit(user.get("tenant_id"), user["_id"], "privacy.erasure_cancel", user["_id"])
+    await audit(user.get("employer_id"), user["_id"], "privacy.erasure_cancel", user["_id"])
     return {"ok": True}

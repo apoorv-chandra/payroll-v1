@@ -75,7 +75,7 @@ def _png_bytes():
 
 
 # ---------------------------------------------------------------------------
-# Module-scope fixtures: tokens + NoraTech tenant_id
+# Module-scope fixtures: tokens + NoraTech employer_id
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="module")
 def sa_token():

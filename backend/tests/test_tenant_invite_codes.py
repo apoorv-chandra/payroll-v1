@@ -189,11 +189,11 @@ def test_per_tenant_db_migration_state():
         if c in coll_names:
             cnt = legacy[c].count_documents({})
             assert cnt == 0, f"legacy {c} still has {cnt} docs"
-    # audit_logs may retain orphan records with tenant_id=null (legacy super-admin actions
+    # audit_logs may retain orphan records with employer_id=null (legacy super-admin actions
     # logged before the audit() helper started filtering null tenants). These cannot be
     # migrated. Verify any remaining audit_logs are *only* orphans.
     if "audit_logs" in coll_names:
-        non_orphan = legacy.audit_logs.count_documents({"tenant_id": {"$ne": None}})
+        non_orphan = legacy.audit_logs.count_documents({"employer_id": {"$ne": None}})
         assert non_orphan == 0, f"legacy audit_logs has {non_orphan} non-orphan docs"
     # Ensure NoraTech tenant DB has at least one employee
     nora_tid = "41ace31dd08d472fa1fa95831c24dc2e"

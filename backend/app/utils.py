@@ -101,7 +101,7 @@ def public_user(u: dict | None) -> dict | None:
         "email": u["email"],
         "name": u.get("name"),
         "role": u["role"],
-        "tenant_id": u.get("tenant_id"),
+        "employer_id": u.get("employer_id"),
         "employee_id": u.get("employee_id"),
         "elevated_roles": u.get("elevated_roles", []),
         "created_at": u.get("created_at"),

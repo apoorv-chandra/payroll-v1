@@ -245,22 +245,52 @@ function countFiles(s) {
 // Sheets banner + configure
 // ===========================================================================
 function SheetsBanner({ info, onConfigure }) {
+  const [resyncing, setResyncing] = useState(false);
+  const [resyncMsg, setResyncMsg] = useState("");
+
+  const onResync = async () => {
+    setResyncing(true); setResyncMsg("");
+    try {
+      const { data } = await api.post("/students/_sheets/resync");
+      const errs = data.errors?.length ? ` (${data.errors.length} errors)` : "";
+      setResyncMsg(`Synced ${data.synced} student${data.synced === 1 ? "" : "s"}${errs}.`);
+      setTimeout(() => setResyncMsg(""), 4000);
+    } catch (e) {
+      setResyncMsg(fmtErr(e));
+    } finally { setResyncing(false); }
+  };
+
   if (!info.configured) return null;
   if (info.master_sheet_id) {
     return (
-      <div className="mb-4 rounded-lg border border-green-100 bg-green-50 p-3 sm:p-4 text-sm flex items-center justify-between gap-3" data-testid="sheets-banner-ok">
-        <div>
-          <div className="font-medium text-green-800">Google Sheets sync is active</div>
-          <div className="text-green-700/80 text-xs mt-0.5">Every student change mirrors to your master sheet.</div>
+      <div className="mb-4 rounded-lg border border-green-100 bg-green-50 p-3 sm:p-4 text-sm" data-testid="sheets-banner-ok">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-medium text-green-800">Google Sheets sync is active</div>
+            <div className="text-green-700/80 text-xs mt-0.5">Every student change mirrors to your master sheet.</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onResync}
+              disabled={resyncing}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-medium bg-white border border-green-200 hover:bg-green-100 text-green-800 disabled:opacity-50"
+              data-testid="resync-sheets-btn"
+            >
+              {resyncing ? "Re-syncing…" : "Re-sync all"}
+            </button>
+            <a
+              href={info.master_sheet_url}
+              target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-medium bg-white border border-green-200 hover:bg-green-100 text-green-800"
+              data-testid="open-sheet-link"
+            >
+              Open <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
         </div>
-        <a
-          href={info.master_sheet_url}
-          target="_blank" rel="noreferrer"
-          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-medium bg-white border border-green-200 hover:bg-green-100 text-green-800"
-          data-testid="open-sheet-link"
-        >
-          Open <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+        {resyncMsg && (
+          <div className="mt-2 text-xs text-green-900/80" data-testid="resync-status">{resyncMsg}</div>
+        )}
       </div>
     );
   }

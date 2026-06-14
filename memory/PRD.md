@@ -50,7 +50,24 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Jun 14, 2026 — v12 / Resync to Sheets + Phase 4 rename `tenants` → `employers`)
+
+**Resync to Sheets**
+- New endpoint `POST /api/students/_sheets/resync` (employer/super_admin only). Resets every teacher's tab binding + every student's `google_sheet_row`, then re-pushes every active student to the master sheet serially. Returns `{ok, synced, errors[:10], more_errors}`. 400 if no sheet bound.
+- UI: new `data-testid="resync-sheets-btn"` on the active Sheets banner in `StudentsApp.jsx`, with inline status (`resync-status`).
+
+**Phase 4 — `tenants` → `employers` rename (OFF HOLD ✅)**
+- One-shot idempotent migration (`services/rename_to_employers.py`) executed at boot. Migrated state on this preview:
+  - Global collection: `db.tenants` → `db.employers` (40 docs).
+  - Global users: `tenant_id` field → `employer_id` (116 docs).
+  - Per-employer collections: `tenant_id` field → `employer_id` (714 docs across attendance/employees/leaves/payroll/audit/student docs).
+- Code rename across `/app/backend/app` and `/app/frontend/src`: `tenant_id`→`employer_id`, `tenant_db()`→`employer_db()`, `db.tenants`→`db.employers`, `_safe_tenant_suffix`→`_safe_employer_suffix`. The DB-name pattern (`payroll_t_<hash>`) is deliberately unchanged — it's purely cosmetic and changing it would orphan existing per-employer databases.
+- UI labels: AdminApp swapped "Tenant(s)" → "Employer(s)" everywhere (overview subtitle, employer page subtitle, StatTile, audit-log column header, getting-started copy). i18n bottom-tab key now renders "Employers" / "नियोक्ता".
+- API path: new `GET/PUT /api/employer/settings`; legacy `/tenant/settings` retained as a transparent alias (`include_in_schema=False`) to avoid breaking any in-flight client.
+- Tests: `/app/backend/tests/test_iteration11_resync_rename.py` — **12/12 PASS**. Existing 28-test framework suite also PASS post-rename.
+
 ## Implemented (Jun 14, 2026 — v11.1 / Students module refactor)
+
 - **Split `routes/students.py` (587 lines)** → 4 focused files (avg ~167 lines): `services/students_service.py` (shared helpers + background sync), `routes/students_crud.py` (CRUD + search), `routes/students_files.py` (upload/download/delete), `routes/students_sheets.py` (configure/info). One-router-per-concern.
 - **Sheets sync → FastAPI BackgroundTasks**: `sync_to_sheets()` is now scheduled via `background_tasks.add_task(...)` on every CUD path. Measured **POST /api/students from ~1–3s → ~200ms** because Google API latency no longer gates the response. Background-task wrapper has a defensive try/except so a Sheets outage can never propagate into the event loop.
 - All 6/6 backend regression tests + live smoke pass post-refactor; zero API contract changes (paths/payloads identical).

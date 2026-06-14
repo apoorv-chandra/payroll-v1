@@ -8,10 +8,10 @@ Architecture: hybrid.
     rest: employees, attendance, leaves, leave_balances, payroll_runs,
     payroll_items, audit_logs, user_consents, erasure_requests.
     Strong physical isolation; one client cannot see another's data even
-    in the case of a code-level bug omitting `tenant_id` filters.
+    in the case of a code-level bug omitting `employer_id` filters.
 
 Naming note: MongoDB Atlas caps DB names at 38 bytes, so we deterministically
-hash the tenant_id with blake2s into 24 hex chars. Total length:
+hash the employer_id with blake2s into 24 hex chars. Total length:
   len(DB_NAME) + 3 ("_t_") + 24  ≤ 38  → DB_NAME must stay ≤ 11 chars.
 80-bit hash space (~10^24) is collision-free for the lifetime of the platform.
 """
@@ -42,31 +42,31 @@ def global_db() -> AsyncIOMotorDatabase:
 
 
 # Backward-compat alias — `db` always refers to the GLOBAL database.
-# Routes that operate on tenant-scoped data MUST switch to `tenant_db(tid)`.
+# Routes that operate on tenant-scoped data MUST switch to `employer_db(tid)`.
 db = global_db()
 
 
-def _safe_tenant_suffix(tenant_id: str) -> str:
-    """24-hex-char blake2s digest of the tenant_id.
+def _safe_employer_suffix(employer_id: str) -> str:
+    """24-hex-char blake2s digest of the employer_id.
 
     Stable across restarts; 80 bits of collision space; fits inside Atlas's
     38-char db-name limit when paired with a sensible DB_NAME.
     """
-    if not tenant_id:
-        raise ValueError("tenant_id is empty")
-    return hashlib.blake2s(tenant_id.encode("utf-8"), digest_size=12).hexdigest()
+    if not employer_id:
+        raise ValueError("employer_id is empty")
+    return hashlib.blake2s(employer_id.encode("utf-8"), digest_size=12).hexdigest()
 
 
-def tenant_db_name(tenant_id: str) -> str:
-    return f"{settings.DB_NAME}_t_{_safe_tenant_suffix(tenant_id)}"
+def employer_db_name(employer_id: str) -> str:
+    return f"{settings.DB_NAME}_t_{_safe_employer_suffix(employer_id)}"
 
 
-def tenant_db(tenant_id: str) -> AsyncIOMotorDatabase:
-    """Return the database handle for `tenant_id`. Caller is responsible for
-    ensuring `tenant_id` belongs to the authenticated user."""
-    if not tenant_id:
-        raise ValueError("tenant_db() requires a tenant_id")
-    return get_client()[tenant_db_name(tenant_id)]
+def employer_db(employer_id: str) -> AsyncIOMotorDatabase:
+    """Return the database handle for `employer_id`. Caller is responsible for
+    ensuring `employer_id` belongs to the authenticated user."""
+    if not employer_id:
+        raise ValueError("employer_db() requires a employer_id")
+    return get_client()[employer_db_name(employer_id)]
 
 
 # Per-tenant collections that we migrate from the legacy shared DB.
@@ -95,15 +95,15 @@ async def ensure_indexes() -> None:
 
     # Global indexes — cross-tenant primitives.
     await db.users.create_index("email", unique=True)
-    await db.tenants.create_index("name")
-    await db.tenants.create_index("signup_code", unique=True, sparse=True)
+    await db.employers.create_index("name")
+    await db.employers.create_index("signup_code", unique=True, sparse=True)
     await db.captchas.create_index("expires_at", expireAfterSeconds=0)
     await db.platform_settings.create_index("key", unique=True)
 
 
-async def ensure_tenant_indexes(tenant_id: str) -> None:
-    """Create per-tenant indexes lazily — first time we touch a tenant DB."""
-    tdb = tenant_db(tenant_id)
+async def ensure_employer_indexes(employer_id: str) -> None:
+    """Create per-employer indexes lazily — first time we touch an employer DB."""
+    tdb = employer_db(employer_id)
     await tdb.employees.create_index("emp_code", unique=True)
     await tdb.employees.create_index("user_id")
     await tdb.attendance.create_index([("employee_id", 1), ("date", 1)], unique=True)

@@ -51,7 +51,7 @@ def test_001_admin_returns_signup_code():
     nora = [t for t in arr if "noratech" in t["name"].lower() or "nora" in t["name"].lower()]
     assert nora, f"NoraTech tenant not found in {[t['name'] for t in arr]}"
     # Use the employer-owned tenant so subsequent employer-side tests align
-    state["tenant_id"] = nora[0]["id"]
+    state["employer_id"] = nora[0]["id"]
     state["signup_code"] = nora[0]["signup_code"]
     state["tenant_name"] = nora[0]["name"]
     assert state["signup_code"], "signup_code missing on NoraTech tenant"
@@ -63,10 +63,10 @@ def test_002_employer_login():
     d = r.json()
     assert d["user"]["role"] == "employer"
     state["employer_token"] = d["access_token"]
-    state["employer_tenant_id"] = d["user"]["tenant_id"]
-    # The tenant_id from signup employers list should match the employer's tenant
-    # If different (multiple Nora tenants exist from prev tests), use the employer's tenant_id
-    state["tenant_id"] = d["user"]["tenant_id"]
+    state["employer_tenant_id"] = d["user"]["employer_id"]
+    # The employer_id from signup employers list should match the employer's tenant
+    # If different (multiple Nora tenants exist from prev tests), use the employer's employer_id
+    state["employer_id"] = d["user"]["employer_id"]
     # Get signup_code from tenant settings (works for employer)
     sr = requests.get(f"{API}/tenant/settings", headers=_hdr(state["employer_token"]))
     if sr.status_code == 200:
