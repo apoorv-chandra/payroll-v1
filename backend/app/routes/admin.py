@@ -88,6 +88,37 @@ async def list_employers(user: dict = Depends(require_role("super_admin"))):
     return out
 
 
+@router.get("/employers/{employer_id}/employees")
+async def list_employer_employees(
+    employer_id: str,
+    user: dict = Depends(require_role("super_admin")),
+):
+    """Super-admin drill-down: list every employee inside one employer.
+
+    Mirrors the employer-side /api/employees shape and joins each row's
+    `feature_permissions` from db.users so the UI can show what modules each
+    employee actually has access to.
+    """
+    employer = await db.employers.find_one({"_id": employer_id})
+    if not employer:
+        raise HTTPException(status_code=404, detail="Employer not found")
+    edb = employer_db(employer_id)
+    out = []
+    async for e in edb.employees.find({"employer_id": employer_id}).sort("emp_code", 1):
+        if e.get("signup_status") == "pending":
+            continue
+        uid = e.get("user_id")
+        feat: list[str] = []
+        if uid:
+            u = await db.users.find_one({"_id": uid}, {"feature_permissions": 1})
+            feat = list((u or {}).get("feature_permissions") or [])
+        e["id"] = e["_id"]
+        e["feature_permissions"] = feat
+        out.append({k: v for k, v in e.items() if k != "_id"})
+    return out
+
+
+
 @router.delete("/employers/{employer_id}")
 async def delete_employer(employer_id: str, user: dict = Depends(require_role("super_admin"))):
     tdb = employer_db(employer_id)

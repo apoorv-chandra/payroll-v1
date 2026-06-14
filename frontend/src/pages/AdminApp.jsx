@@ -63,6 +63,9 @@ function Employers() {
   const [createdCode, setCreatedCode] = useState(null);
   const [featuresFor, setFeaturesFor] = useState(null);     // employer being edited
   const [catalog, setCatalog] = useState([]);
+  const [drillDown, setDrillDown] = useState(null);         // employer drill-down for "View employees"
+  const [delErr, setDelErr] = useState("");
+  const { confirm, ConfirmHost } = useConfirm();
 
   const load = async () => {
     setList(null);
@@ -85,10 +88,25 @@ function Employers() {
     } catch (e2) { setErr(fmtErr(e2)); } finally { setBusy(false); }
   };
 
-  const del = async (id) => {
-    if (!window.confirm("Delete this employer and ALL their data? This cannot be undone.")) return;
-    await api.delete(`/admin/employers/${id}`);
-    load();
+  const del = async (t) => {
+    setDelErr("");
+    const ok = await confirm({
+      kind: "type",
+      title: `Delete employer "${t.name}"?`,
+      body: `This will permanently delete ALL data for this employer — employees, attendance, payroll, students. This cannot be undone.\n\nType the employer name to confirm.`,
+      typeText: t.name,
+      danger: true,
+      okText: "Delete forever",
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/admin/employers/${t.id}`);
+      load();
+    } catch (e) {
+      setDelErr(fmtErr(e));
+      // Surface the error inline at the top of the page so the user sees it.
+      window.setTimeout(() => setDelErr(""), 6000);
+    }
   };
 
   return (
@@ -98,6 +116,12 @@ function Employers() {
         subtitle="Independent workspaces. Data is fully isolated between employers."
         action={<Button onClick={() => setOpen(true)} data-testid="add-employer-button"><Plus className="h-4 w-4" />Add employer</Button>}
       />
+      {delErr && (
+        <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" data-testid="employer-delete-error">
+          {delErr}
+        </div>
+      )}
+      {ConfirmHost}
       {list === null ? (
         <div className="flex items-center gap-2 text-gray-500"><Spinner /> Loading…</div>
       ) : list.length === 0 ? (
@@ -132,11 +156,14 @@ function Employers() {
                   ))}
                 </div>
               </div>
-              <div className="mt-4 flex gap-2 justify-end">
+              <div className="mt-4 flex gap-2 justify-end flex-wrap">
+                <Button variant="secondary" onClick={() => setDrillDown(t)} data-testid={`view-employees-${t.id}`}>
+                  <Users className="h-4 w-4" /> View employees
+                </Button>
                 <Button variant="secondary" onClick={() => setFeaturesFor(t)} data-testid={`manage-features-${t.id}`}>
                   Manage modules
                 </Button>
-                <Button variant="danger" onClick={() => del(t.id)} data-testid={`delete-employer-${t.id}`}><Trash2 className="h-4 w-4" />Delete</Button>
+                <Button variant="danger" onClick={() => del(t)} data-testid={`delete-employer-${t.id}`}><Trash2 className="h-4 w-4" />Delete</Button>
               </div>
             </Card>
           ))}
@@ -197,7 +224,77 @@ function Employers() {
         onClose={() => setFeaturesFor(null)}
         onSaved={() => { setFeaturesFor(null); load(); }}
       />
+
+      <EmployerDrillDownModal
+        employer={drillDown}
+        onClose={() => setDrillDown(null)}
+      />
     </div>
+  );
+}
+
+function EmployerDrillDownModal({ employer, onClose }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (!employer) { setData(null); setErr(""); return; }
+    (async () => {
+      try {
+        const { data } = await api.get(`/admin/employers/${employer.id}/employees`);
+        setData(data);
+      } catch (e) { setErr(fmtErr(e)); }
+    })();
+  }, [employer]);
+
+  return (
+    <Modal
+      open={!!employer}
+      onClose={onClose}
+      title={employer ? `${employer.name} — employees` : ""}
+      size="lg"
+      footer={<Button variant="secondary" onClick={onClose}>Close</Button>}
+    >
+      {err && <div className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-md px-3 py-2 mb-3">{err}</div>}
+      {!data ? (
+        <div className="text-sm text-gray-500"><Spinner /> Loading employees…</div>
+      ) : data.length === 0 ? (
+        <div className="text-sm text-gray-500">No employees yet for this employer.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" data-testid="employer-drill-employees-table">
+            <thead className="text-left text-gray-500">
+              <tr className="border-b border-gray-100">
+                <th className="py-2 pr-3">Code</th>
+                <th className="py-2 pr-3">Name</th>
+                <th className="py-2 pr-3">Email</th>
+                <th className="py-2 pr-3">Roles</th>
+                <th className="py-2 pr-3">Modules</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((e) => (
+                <tr key={e.id} className="border-b border-gray-50 last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs text-gray-600">{e.emp_code || "—"}</td>
+                  <td className="py-2 pr-3 text-ink font-medium">{e.name}</td>
+                  <td className="py-2 pr-3 text-gray-600">{e.email}</td>
+                  <td className="py-2 pr-3">
+                    {(e.elevated_roles || []).length === 0 ? <span className="text-gray-400">employee</span> :
+                      e.elevated_roles.map((r) => <Badge key={r} tone="blue">{r}</Badge>)}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <div className="flex flex-wrap gap-1">
+                      {(e.feature_permissions || []).length === 0 ? <span className="text-gray-400 text-xs">none</span> :
+                        e.feature_permissions.map((c) => <Badge key={c} tone="neutral">{c}</Badge>)}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
 

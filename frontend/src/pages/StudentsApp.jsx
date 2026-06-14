@@ -17,13 +17,14 @@ import {
 } from "react-router-dom";
 import {
   GraduationCap, Search, Plus, Upload, Trash2, ExternalLink, ArrowLeft,
-  LogOut, Settings as SettingsIcon, FileText, ImageIcon, Wallet,
+  LogOut, Settings as SettingsIcon, FileText, ImageIcon,
 } from "lucide-react";
 
 import { api, fmtErr, fmtDate } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import useFeatures from "../lib/useFeatures";
 import useConfirm from "../lib/useConfirm";
+import ModuleSwitcher from "../components/ModuleSwitcher";
 import {
   Button, Input, Card, Modal, Empty, Spinner, Badge, PageHeader,
 } from "../components/ui/Primitives";
@@ -48,7 +49,7 @@ const FILE_SLOTS = [
 // ===========================================================================
 export default function StudentsApp() {
   const { user, logout } = useAuth();
-  const { features, has, loading: featLoading, reload } = useFeatures();
+  const { has, loading: featLoading, reload } = useFeatures();
   const navigate = useNavigate();
 
   // Ensure features are loaded before children render — avoids a 403 race
@@ -59,11 +60,9 @@ export default function StudentsApp() {
     return <div className="min-h-screen flex items-center justify-center"><Spinner /></div>;
   }
   if (!has("students")) {
-    // User landed on /school but doesn't have the module — bounce them.
-    return <Navigate to="/launchpad" replace />;
+    // User landed on /school but doesn't have the module — bounce them home.
+    return <Navigate to="/" replace />;
   }
-
-  const switchable = features.length > 1;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -76,16 +75,6 @@ export default function StudentsApp() {
             <span className="font-serif text-base">Students</span>
           </Link>
           <div className="flex items-center gap-1">
-            {switchable && (
-              <button
-                onClick={() => navigate("/launchpad")}
-                className="h-9 px-3 inline-flex items-center gap-1.5 rounded-md text-xs font-medium text-gray-700 hover:bg-gray-100"
-                data-testid="switch-module-btn"
-              >
-                <Wallet className="h-3.5 w-3.5" />
-                Switch
-              </button>
-            )}
             <button
               onClick={() => navigate("/me/privacy")}
               className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700"
@@ -94,6 +83,7 @@ export default function StudentsApp() {
             >
               <SettingsIcon className="h-4 w-4" />
             </button>
+            <ModuleSwitcher currentCode="students" />
             <button
               onClick={async () => { await logout(); navigate("/login", { replace: true }); }}
               className="h-9 w-9 inline-flex items-center justify-center rounded-md hover:bg-gray-100 text-gray-700"

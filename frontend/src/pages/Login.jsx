@@ -30,28 +30,27 @@ export default function Login() {
 
   if (user === undefined) return <FullScreenLoader />;
   // If already logged in, send to launchpad — it handles 0/1/many feature redirect.
-  if (user) return <Navigate to="/launchpad" replace />;
+  if (user) {
+    // Already logged in — let the in-component logic figure out the best route
+    // (super_admin → /admin, otherwise → preferred module). Sending them to
+    // /launchpad would force the picker UI which we now reserve for the
+    // zero-feature empty state.
+    return <Navigate to={postLoginPath(user, null)} replace />;
+  }
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setBusy(true); setErr("");
     try {
       const u = await login(email.trim(), password, cap?.token, Number(capAns));
-      // Fetch effective features to decide where to land.
-      //  • 0 features → empty-state Launchpad (user contacts admin).
-      //  • 1 feature  → straight into that module (single-feature users skip the picker).
-      //  • 2+ features → /launchpad tile picker.
+      // Always route directly to a module. Payroll is the preferred home if
+      // present; otherwise the first available module's landing path. The
+      // cross-module 3-dot switcher inside each module screen takes over
+      // when the user has multiple modules.
       resetFeatures();
       const feats = await loadFeatures(true);
       const list = feats?.features || [];
-      if (list.length === 1) {
-        navigate(list[0].landing_path || homeFor(u), { replace: true });
-      } else if (list.length >= 2) {
-        navigate("/launchpad", { replace: true });
-      } else {
-        // No active modules — show launchpad's empty state for clarity.
-        navigate("/launchpad", { replace: true });
-      }
+      navigate(postLoginPath(u, list), { replace: true });
     } catch (e2) {
       setErr(e2.message);
       loadCaptcha();
@@ -255,4 +254,30 @@ export function homeFor(u) {
   if (u.role === "employer") return "/employer";
   if (u.role === "employee" && (u.elevated_roles || []).includes("accountant")) return "/me";
   return "/me";
+}
+
+/**
+ * postLoginPath — pick where to land the user after auth.
+ *
+ * Rules (per product spec):
+ *   • super_admin                           → /admin (sees every employer).
+ *   • employer / employee with NO features  → /launchpad (empty-state).
+ *   • employer / employee with payroll      → payroll's landing (/employer or /me).
+ *     If they ALSO have students, they STILL land on payroll first;
+ *     the in-app 3-dot menu surfaces "Manage students".
+ *   • employer / employee with ONLY students → /school.
+ *
+ * `featureList` may be null (e.g. for the "already logged in" branch where
+ * we don't have it yet — fall back to role-based home).
+ */
+export function postLoginPath(u, featureList) {
+  if (!u) return "/login";
+  if (u.role === "super_admin") return "/admin";
+
+  if (featureList && featureList.length === 0) return "/launchpad";
+
+  const codes = (featureList || []).map((f) => f.code);
+  if (codes.includes("payroll")) return homeFor(u);          // payroll is the primary home.
+  if (codes.includes("students")) return "/school";
+  return homeFor(u);                                          // no features info — best guess.
 }

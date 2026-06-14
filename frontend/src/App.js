@@ -2,7 +2,7 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { I18nProvider } from "./contexts/I18nContext";
-import Login, { FullScreenLoader, homeFor } from "./pages/Login";
+import Login, { FullScreenLoader, homeFor, postLoginPath } from "./pages/Login";
 import Signup from "./pages/Signup";
 import AdminApp from "./pages/AdminApp";
 import EmployerApp from "./pages/EmployerApp";
@@ -21,8 +21,9 @@ function Protected({ allow, children }) {
 function HomeRedirect() {
   const { user } = useAuth();
   if (user === undefined) return <FullScreenLoader />;
-  // Launchpad decides single-vs-many feature routing internally.
-  return <Navigate to={user ? "/launchpad" : "/login"} replace />;
+  // No feature list yet here — postLoginPath falls back to role-based home,
+  // which is fine because the eventual target route refetches features.
+  return <Navigate to={user ? postLoginPath(user, null) : "/login"} replace />;
 }
 
 export default function App() {
