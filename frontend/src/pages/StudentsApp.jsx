@@ -235,23 +235,55 @@ function countFiles(s) {
 // Sheets banner + configure
 // ===========================================================================
 function SheetsBanner({ info, onConfigure }) {
-  const [resyncing, setResyncing] = useState(false);
+  const [job, setJob] = useState(null);              // active resync job
   const [resyncMsg, setResyncMsg] = useState("");
+  const pollRef = React.useRef(null);
+
+  // Clear the polling timer on unmount — prevents leaks if the user
+  // navigates away mid-resync.
+  useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current); }, []);
+
+  const pollJob = (jobId) => {
+    const tick = async () => {
+      try {
+        const { data } = await api.get(`/students/_sheets/resync/${jobId}`);
+        setJob(data);
+        if (data.status === "completed" || data.status === "failed") {
+          const errs = (data.errors || []).length + (data.more_errors || 0);
+          const errSuffix = errs ? ` (${errs} error${errs === 1 ? "" : "s"})` : "";
+          if (data.status === "completed") {
+            setResyncMsg(`Synced ${data.progress}/${data.total}${errSuffix}.`);
+          } else {
+            setResyncMsg(`Resync failed after ${data.progress}/${data.total}. ${data.fatal_error || ""}`);
+          }
+          // Auto-clear the job badge after 8s so the banner returns to normal.
+          pollRef.current = setTimeout(() => { setJob(null); setResyncMsg(""); }, 8000);
+          return;
+        }
+        pollRef.current = setTimeout(tick, 1500);   // 1.5s cadence
+      } catch (e) {
+        setResyncMsg(fmtErr(e));
+        setJob(null);
+      }
+    };
+    tick();
+  };
 
   const onResync = async () => {
-    setResyncing(true); setResyncMsg("");
+    setResyncMsg("");
     try {
       const { data } = await api.post("/students/_sheets/resync");
-      const errs = data.errors?.length ? ` (${data.errors.length} errors)` : "";
-      setResyncMsg(`Synced ${data.synced} student${data.synced === 1 ? "" : "s"}${errs}.`);
-      setTimeout(() => setResyncMsg(""), 4000);
+      setJob({ id: data.job_id, status: "queued", progress: 0, total: data.total });
+      pollJob(data.job_id);
     } catch (e) {
       setResyncMsg(fmtErr(e));
-    } finally { setResyncing(false); }
+    }
   };
 
   if (!info.configured) return null;
   if (info.master_sheet_id) {
+    const busy = job && (job.status === "queued" || job.status === "running");
+    const pct = job?.total ? Math.round((job.progress / job.total) * 100) : 0;
     return (
       <div className="mb-4 rounded-lg border border-green-100 bg-green-50 p-3 sm:p-4 text-sm" data-testid="sheets-banner-ok">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -262,11 +294,11 @@ function SheetsBanner({ info, onConfigure }) {
           <div className="flex items-center gap-2">
             <button
               onClick={onResync}
-              disabled={resyncing}
+              disabled={busy}
               className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-medium bg-white border border-green-200 hover:bg-green-100 text-green-800 disabled:opacity-50"
               data-testid="resync-sheets-btn"
             >
-              {resyncing ? "Re-syncing…" : "Re-sync all"}
+              {busy ? `Re-syncing… ${job.progress}/${job.total}` : "Re-sync all"}
             </button>
             <a
               href={info.master_sheet_url}
@@ -278,6 +310,20 @@ function SheetsBanner({ info, onConfigure }) {
             </a>
           </div>
         </div>
+        {busy && (
+          <div className="mt-3" data-testid="resync-progress">
+            <div className="h-1.5 w-full bg-green-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-green-600 transition-all"
+                style={{ width: `${pct}%` }}
+                data-testid="resync-progress-bar"
+              />
+            </div>
+            <div className="mt-1 text-[11px] text-green-800/80">
+              {pct}% · {job.progress} of {job.total} students
+            </div>
+          </div>
+        )}
         {resyncMsg && (
           <div className="mt-2 text-xs text-green-900/80" data-testid="resync-status">{resyncMsg}</div>
         )}

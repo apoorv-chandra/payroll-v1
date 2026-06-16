@@ -9,14 +9,14 @@ from __future__ import annotations
 import logging
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..db import db
 from ..deps import require_feature
 from ..services import sheets as sheets_svc
 from ..services.audit import audit
-from ..utils import now_utc
+from ..utils import gen_id, now_utc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["students"])
@@ -149,18 +149,16 @@ async def clear_master_sheet(user: dict = Depends(require_feature("students"))):
 
 
 @router.post("/students/_sheets/resync")
-async def resync_master_sheet(user: dict = Depends(require_feature("students"))):
-    """Re-push every active student row to the master sheet.
+async def resync_master_sheet(
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_feature("students")),
+):
+    """Queue a Sheets re-sync. Runs in the background; client polls
+    `GET /api/students/_sheets/resync/{job_id}` for progress.
 
-    Useful when:
-      • the employer just bound a fresh spreadsheet (Overview tab empty),
-      • a Sheets outage caused drift between Mongo and the sheet,
-      • someone manually deleted rows / a tab.
-
-    We don't try to clean up stale rows in the sheet — appending is safe and
-    idempotent enough because we overwrite by index when `google_sheet_row`
-    is known. Rows are cleared from teacher state so each teacher gets a
-    fresh tab on first iteration.
+    Why background: walking N students × ~200 ms Google round-trip means an
+    employer with 500 students would hit a 60-90 second request timeout.
+    A background job keeps the API snappy and lets the UI show progress.
     """
     if user["role"] not in ("super_admin", "employer"):
         raise HTTPException(status_code=403, detail="Only employer/super admin")
@@ -181,30 +179,108 @@ async def resync_master_sheet(user: dict = Depends(require_feature("students")))
         {"$unset": {"students_sheet_tab": ""}},
     )
     from ..db import employer_db
-    from ..services.students_service import sync_to_sheets
-    tdb = employer_db(user["employer_id"])
-    await tdb.students.update_many(
+    edb = employer_db(user["employer_id"])
+    await edb.students.update_many(
         {"deleted_at": None}, {"$set": {"google_sheet_row": None}}
     )
 
-    # Walk every active student and push. We do this serially to avoid
-    # blasting Google's per-minute write quota.
-    count = 0
-    errors: list[str] = []
-    async for s in tdb.students.find({"deleted_at": None}).sort("serial_no_int", 1):
-        # Build a synthetic user dict for sync_to_sheets — it only reads
-        # employer_id from it.
-        try:
-            await sync_to_sheets({"employer_id": user["employer_id"]}, s, "create")
-            count += 1
-        except Exception as e:
-            errors.append(f"#{s.get('serial_no','?')} {s.get('name','?')}: {e}")
+    # Create the job document. The worker updates this as it progresses; the
+    # UI polls it.
+    total = await edb.students.count_documents({"deleted_at": None})
+    job_id = gen_id()
+    await edb.resync_jobs.insert_one({
+        "_id": job_id,
+        "status": "queued",
+        "progress": 0,
+        "total": total,
+        "errors": [],
+        "more_errors": 0,
+        "created_at": now_utc(),
+        "created_by": user["_id"],
+        "started_at": None,
+        "finished_at": None,
+    })
 
-    await audit(user["employer_id"], user["_id"], "students.sheet.resync", tenant["students_sheet_id"],
-                {"count": count, "errors": len(errors)})
-    return {
-        "ok": True,
-        "synced": count,
-        "errors": errors[:10],  # cap so the JSON stays small
-        "more_errors": max(0, len(errors) - 10),
-    }
+    background_tasks.add_task(_run_resync_job, user["employer_id"], job_id)
+    await audit(user["employer_id"], user["_id"], "students.sheet.resync.start", job_id,
+                {"total": total})
+    return {"ok": True, "job_id": job_id, "total": total, "status": "queued"}
+
+
+@router.get("/students/_sheets/resync/{job_id}")
+async def get_resync_status(
+    job_id: str,
+    user: dict = Depends(require_feature("students")),
+):
+    """Poll endpoint. Returns the live job state — UI updates a progress bar
+    until status becomes `completed` or `failed`.
+    """
+    from ..db import employer_db
+    edb = employer_db(user["employer_id"])
+    job = await edb.resync_jobs.find_one({"_id": job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job["id"] = job["_id"]
+    return {k: v for k, v in job.items() if k != "_id"}
+
+
+async def _run_resync_job(employer_id: str, job_id: str) -> None:
+    """Worker that walks students and syncs each. Runs inside FastAPI's
+    BackgroundTasks event loop — same process, after the response is sent.
+    """
+    from ..db import employer_db
+    from ..services.students_service import sync_to_sheets
+
+    edb = employer_db(employer_id)
+    await edb.resync_jobs.update_one(
+        {"_id": job_id},
+        {"$set": {"status": "running", "started_at": now_utc()}},
+    )
+
+    synced = 0
+    errors: list[str] = []
+    try:
+        cursor = edb.students.find({"deleted_at": None}).sort("serial_no_int", 1)
+        async for s in cursor:
+            try:
+                await sync_to_sheets({"employer_id": employer_id}, s, "create")
+                synced += 1
+            except Exception as e:
+                errors.append(f"#{s.get('serial_no', '?')} {s.get('name', '?')}: {e}")
+
+            # Update progress every 5 students so the UI feels live without
+            # hammering Mongo on every single row.
+            if synced % 5 == 0 or len(errors) % 5 == 0:
+                await edb.resync_jobs.update_one(
+                    {"_id": job_id},
+                    {"$set": {
+                        "progress": synced,
+                        "errors": errors[:10],
+                        "more_errors": max(0, len(errors) - 10),
+                    }},
+                )
+
+        await edb.resync_jobs.update_one(
+            {"_id": job_id},
+            {"$set": {
+                "status": "completed",
+                "progress": synced,
+                "errors": errors[:10],
+                "more_errors": max(0, len(errors) - 10),
+                "finished_at": now_utc(),
+            }},
+        )
+        logger.info("Resync job %s done: synced=%d errors=%d", job_id, synced, len(errors))
+    except Exception as e:
+        logger.exception("Resync job %s crashed", job_id)
+        await edb.resync_jobs.update_one(
+            {"_id": job_id},
+            {"$set": {
+                "status": "failed",
+                "progress": synced,
+                "fatal_error": str(e),
+                "errors": errors[:10],
+                "more_errors": max(0, len(errors) - 10),
+                "finished_at": now_utc(),
+            }},
+        )
