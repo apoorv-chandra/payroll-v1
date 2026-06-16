@@ -15,8 +15,7 @@
 | Role | Email | Password |
 |---|---|---|
 | Super Admin | `admin@payroll.app` | `admin123` |
-| Employer (NoraTech) | `apoorvchandra01+employer@gmail.com` | `demoadmin123` |
-| Employee (Apoorv) | `apoorvchandra01@gmail.com` | `emp123456` |
+| Employer (Doodhnathnath — has Payroll + Students) | `apoorvchandra02@gmail.com` | (set via super-admin reset; ask user for current) |
 
 ## Two-step confirmations
 - **Delete employer / employee** → must type the entity name to confirm

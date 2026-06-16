@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from ..config import settings
 from ..db import db, employer_db
 from ..security import sign_file_token
 from ..services import sheets as sheets_svc
@@ -88,7 +89,10 @@ def can_access(user: dict, student: dict) -> bool:
 # ---------------------------------------------------------------------------
 def signed_file_url(employer_id: str, file_id: str, base_url: str = "") -> str:
     token = sign_file_token(employer_id, file_id, ttl_days=30)
-    return f"{base_url}/api/students/files/{file_id}?t={token}"
+    # Default to APP_BASE_URL so Google Sheets cells get absolute URLs.
+    # Relative paths in =HYPERLINK don't work — Sheets has no host context.
+    root = (base_url or settings.APP_BASE_URL or "").rstrip("/")
+    return f"{root}/api/students/files/{file_id}?t={token}"
 
 
 def build_file_links(employer_id: str, student: dict, base_url: str = "") -> dict[str, str]:

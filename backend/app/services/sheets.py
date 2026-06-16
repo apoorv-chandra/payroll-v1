@@ -45,8 +45,38 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
 
+# Stable ordering for the 12 file slots — used as both Sheet column names and
+# as the lookup keys when building the row.
+TEACHER_TAB_FILE_SLOTS = (
+    "photo", "signature",
+    "tenth_marksheet", "twelfth_marksheet",
+    "graduation_marksheet", "pg_marksheet",
+    "income_certificate", "caste_certificate", "domicile_certificate",
+    "affidavit", "aadhaar_front", "aadhaar_back",
+)
+
+# Pretty header label for each slot — title case, no underscores.
+_SLOT_HEADER = {
+    "photo": "Photo",
+    "signature": "Signature",
+    "tenth_marksheet": "10th Marksheet",
+    "twelfth_marksheet": "12th Marksheet",
+    "graduation_marksheet": "Graduation",
+    "pg_marksheet": "PG",
+    "income_certificate": "Income Cert.",
+    "caste_certificate": "Caste Cert.",
+    "domicile_certificate": "Domicile Cert.",
+    "affidavit": "Affidavit",
+    "aadhaar_front": "Aadhaar (Front)",
+    "aadhaar_back": "Aadhaar (Back)",
+}
+
+
 # Column header used on each teacher's tab. Order matters — student row writes
-# follow this exact order.
+# follow this exact order. The 12 trailing columns are one-per-file-slot so
+# each upload gets its OWN clickable HYPERLINK cell (joining multiple
+# HYPERLINK formulas inside a single cell makes Sheets treat them as plain
+# text — they only render as clickable links one-per-cell).
 TEACHER_TAB_HEADERS = [
     "Sl. No.",
     "Student Name",
@@ -68,7 +98,7 @@ TEACHER_TAB_HEADERS = [
     "Graduation %",
     "PG %",
     "Last Updated",
-    "Files",
+    *[_SLOT_HEADER[s] for s in TEACHER_TAB_FILE_SLOTS],
 ]
 
 # Tab name sanitisation — Sheets disallows :, \, /, ?, *, [, ]
@@ -283,13 +313,15 @@ def _row_from_student(student: dict, file_links: dict[str, str]) -> list[str]:
     aadhaar = (f("aadhaar") or "").replace(" ", "")
     aadhaar_masked = ("XXXX XXXX " + aadhaar[-4:]) if len(aadhaar) >= 4 else aadhaar
 
-    files_cell = ""
-    if file_links:
-        # Use HYPERLINK so the cell is clickable. Sheets allows multi-line.
-        files_cell = "\n".join(
-            f'=HYPERLINK("{url}", "{slot}")'
-            for slot, url in file_links.items()
-        )
+    files_cells: list[str] = []
+    for slot in TEACHER_TAB_FILE_SLOTS:
+        url = (file_links or {}).get(slot)
+        if url:
+            # Escape any double quotes in URLs so the formula stays valid.
+            safe_url = url.replace('"', '%22')
+            files_cells.append(f'=HYPERLINK("{safe_url}", "View")')
+        else:
+            files_cells.append("")
 
     return [
         f("serial_no"),
@@ -312,7 +344,7 @@ def _row_from_student(student: dict, file_links: dict[str, str]) -> list[str]:
         f("grad_percent"),
         f("pg_percent"),
         datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        files_cell,
+        *files_cells,
     ]
 
 
