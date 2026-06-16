@@ -4,10 +4,11 @@ import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound, Eye, RotateCw, LayoutGrid } from "lucide-react";
+import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound, Eye, RotateCw, LayoutGrid, GraduationCap, ExternalLink, ArrowRight } from "lucide-react";
 import GeofenceMap from "../components/GeofenceMap";
 import PinMap from "../components/PinMap";
 import useConfirm from "../lib/useConfirm";
+import useFeatures from "../lib/useFeatures";
 
 const NAV = [
   { id: "dashboard", to: "/employer", end: true, label: "Overview", icon: LayoutDashboard },
@@ -94,6 +95,11 @@ function Overview() {
   const [leaves, setLeaves] = useState([]);
   const [att, setAtt] = useState([]);
   const [tenant, setTenant] = useState(null);
+  const [sheetsInfo, setSheetsInfo] = useState(null);
+  const { has } = useFeatures();
+  const navigate = useNavigate();
+  const hasStudents = has("students");
+
   useEffect(() => {
     Promise.all([
       api.get("/employees"),
@@ -102,6 +108,12 @@ function Overview() {
       api.get("/employer/settings"),
     ]).then(([a, b, c, d]) => { setEmps(a.data); setLeaves(b.data); setAtt(c.data); setTenant(d.data); }).catch(() => {});
   }, []);
+  useEffect(() => {
+    if (!hasStudents) return;
+    api.get("/students/_sheets/info")
+      .then((r) => setSheetsInfo(r.data))
+      .catch(() => setSheetsInfo({ configured: false }));
+  }, [hasStudents]);
   const today = new Date().toISOString().slice(0, 10);
   const presentToday = att.filter((r) => r.date === today).length;
   return (
@@ -113,6 +125,8 @@ function Overview() {
         <StatTile label="Pending Leaves" value={leaves.length} icon={Calendar} />
         <StatTile label="This Month" value={monthName(new Date().getMonth() + 1)} icon={ScrollText} hint="Run payroll →" />
       </div>
+
+      {hasStudents && <StudentsModuleCard sheetsInfo={sheetsInfo} onOpen={() => navigate("/school")} />}
 
       <div className="grid lg:grid-cols-2 gap-4 mt-6">
         <Card>
@@ -155,6 +169,59 @@ function Overview() {
     </div>
   );
 }
+
+function StudentsModuleCard({ sheetsInfo, onOpen }) {
+  const configured = !!sheetsInfo?.master_sheet_id;
+  // Three visual states: loading (sheetsInfo === null), needs configure (no master_sheet_id),
+  // sync active (master_sheet_id present). All three states route the click to /school.
+  return (
+    <Card
+      className="mt-4 cursor-pointer hover:border-ink transition-colors"
+      onClick={onOpen}
+      data-testid="employer-students-module-card"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="h-11 w-11 rounded-xl bg-ink/5 inline-flex items-center justify-center shrink-0">
+            <GraduationCap className="h-5 w-5 text-ink" />
+          </div>
+          <div className="min-w-0">
+            <div className="font-serif text-lg text-ink">Student records</div>
+            {sheetsInfo === null ? (
+              <div className="text-xs text-gray-500 mt-0.5">Checking sync status…</div>
+            ) : configured ? (
+              <div className="text-xs text-green-700 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                <Check className="h-3.5 w-3.5" />
+                <span>Google Sheets sync is active</span>
+                <a
+                  href={sheetsInfo.master_sheet_url}
+                  target="_blank" rel="noreferrer"
+                  className="text-green-800 underline ml-1"
+                  onClick={(e) => e.stopPropagation()}
+                  data-testid="employer-sheet-quick-link"
+                >
+                  Open sheet <ExternalLink className="inline h-3 w-3" />
+                </a>
+              </div>
+            ) : (
+              <div className="text-xs text-amber-800 mt-0.5">
+                Google Sheets sync is <b>not configured</b>. Click to set up.
+              </div>
+            )}
+          </div>
+        </div>
+        <Button
+          variant="secondary"
+          onClick={(e) => { e.stopPropagation(); onOpen(); }}
+          data-testid="employer-manage-students-btn"
+        >
+          {configured ? "Manage" : "Set up"} <ArrowRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 
 function Employees() {
   const [list, setList] = useState(null);
