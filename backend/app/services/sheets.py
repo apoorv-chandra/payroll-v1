@@ -411,6 +411,24 @@ async def strike_student_row(spreadsheet_id: str, tab_id: int, row_index: int) -
     )
 
 
+async def clear_teacher_tab_rows(spreadsheet_id: str, tab_name: str) -> None:
+    """Wipe every data row on a teacher tab (keeps the header at row 1).
+
+    Used at the start of a resync so we never accumulate duplicate rows when
+    the user clicks "Re-sync all" multiple times.
+    """
+    sheets = _sheets_client()
+    if not sheets:
+        raise RuntimeError("Sheets not configured")
+    await _run(
+        lambda: sheets.spreadsheets().values().clear(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{tab_name}'!A2:ZZ",
+            body={},
+        ).execute()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Best-effort wrappers — never raise, always log.
 # ---------------------------------------------------------------------------

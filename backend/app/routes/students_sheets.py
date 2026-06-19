@@ -172,6 +172,21 @@ async def resync_master_sheet(
             detail="No master sheet bound yet. Configure it first.",
         )
 
+    # Reject if another resync is already in-flight for this employer —
+    # otherwise two workers race on the same tabs and produce duplicates
+    # despite the per-teacher clear-once guard.
+    from ..db import employer_db
+    edb_check = employer_db(user["employer_id"])
+    inflight = await edb_check.resync_jobs.find_one(
+        {"status": {"$in": ["queued", "running"]}}
+    )
+    if inflight:
+        raise HTTPException(
+            status_code=409,
+            detail="A resync is already in progress for this employer. "
+                   f"Poll /students/_sheets/resync/{inflight['_id']} for status.",
+        )
+
     # Reset every teacher's tab binding + every student's row index so the
     # next sync_to_sheets call rebuilds from scratch.
     await db.users.update_many(
@@ -227,6 +242,11 @@ async def get_resync_status(
 async def _run_resync_job(employer_id: str, job_id: str) -> None:
     """Worker that walks students and syncs each. Runs inside FastAPI's
     BackgroundTasks event loop — same process, after the response is sent.
+
+    Idempotent across re-runs: before re-pushing any student we wipe the
+    target teacher's data rows so consecutive clicks of "Re-sync all" don't
+    accumulate duplicates. The Sheets `values().clear()` keeps row 1 (header)
+    intact and only blanks rows 2 onwards.
     """
     from ..db import employer_db
     from ..services.students_service import sync_to_sheets
@@ -237,12 +257,43 @@ async def _run_resync_job(employer_id: str, job_id: str) -> None:
         {"$set": {"status": "running", "started_at": now_utc()}},
     )
 
+    # Look up the tenant's master sheet once — every clear hits the same one.
+    tenant = await db.employers.find_one({"_id": employer_id}, {"students_sheet_id": 1})
+    sheet_id = (tenant or {}).get("students_sheet_id")
+
     synced = 0
     errors: list[str] = []
+    cleared_tabs: set[str] = set()   # teacher_user_ids whose tabs we've cleared this run
     try:
         cursor = edb.students.find({"deleted_at": None}).sort("serial_no_int", 1)
         async for s in cursor:
             try:
+                teacher_uid = s.get("owner_user_id") or "_unknown"
+                # First time we encounter this teacher in the run, ensure
+                # their tab exists, then blank the data rows.
+                if sheet_id and teacher_uid not in cleared_tabs:
+                    try:
+                        teacher = await db.users.find_one(
+                            {"_id": teacher_uid}, {"name": 1, "email": 1}
+                        )
+                        if teacher:
+                            label = (
+                                teacher.get("name")
+                                or (teacher.get("email") or "Teacher").split("@")[0]
+                            )
+                            tab = await sheets_svc.ensure_teacher_tab(sheet_id, label)
+                            # Persist the tab binding so sync_to_sheets reuses it.
+                            await db.users.update_one(
+                                {"_id": teacher_uid},
+                                {"$set": {"students_sheet_tab": tab}},
+                            )
+                            await sheets_svc.clear_teacher_tab_rows(
+                                sheet_id, tab["tab_name"]
+                            )
+                    except Exception as e:
+                        logger.warning("Could not clear tab for teacher %s: %s", teacher_uid, e)
+                    cleared_tabs.add(teacher_uid)
+
                 await sync_to_sheets({"employer_id": employer_id}, s, "create")
                 synced += 1
             except Exception as e:
