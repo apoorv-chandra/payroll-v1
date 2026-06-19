@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from ..schemas.features import FeatureCodesPayload
 
 from ..db import db
 from ..deps import get_current_user, require_role, require_employer_or_admin
@@ -20,10 +20,6 @@ from ..services.features import (
 from ..utils import now_utc
 
 router = APIRouter(tags=["features"])
-
-
-class FeatureCodesPayload(BaseModel):
-    codes: list[str] = Field(default_factory=list)
 
 
 # ---------- Public catalog + self lookup ----------
@@ -140,3 +136,4 @@ async def set_employee_features(
     )
     await audit(employer_id, user["_id"], "employee.features.set", employee_user_id, {"codes": requested})
     return {"user_id": employee_user_id, "feature_permissions": requested}
+

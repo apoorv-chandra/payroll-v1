@@ -50,6 +50,31 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Feb 21, 2026 — v12.1 / Backend schemas + models centralisation)
+
+**Refactor — `app/schemas/` split + canonical `app/models/`**
+- Split `app/schemas/__init__.py` (189 lines) into per-domain modules:
+  `auth.py`, `employers.py`, `employees.py`, `attendance.py`, `leaves.py`,
+  `payroll.py`, `features.py`, `privacy.py`, `students.py`. `__init__.py`
+  is now a thin re-export aggregator so every existing route import keeps
+  working unchanged (`from ..schemas import LoginRequest, …`).
+- Extracted the last 4 inline Pydantic models from route files into the
+  centralised schemas package:
+  `FeatureCodesPayload` (was in `routes/features.py`), `ConsentSet`
+  (`routes/privacy.py`), `StudentIn` (`routes/students_crud.py`),
+  `SheetConfigurePayload` (`routes/students_sheets.py`).
+- Added canonical Mongo document models in `app/models/` as the
+  source-of-truth for the document shape of each collection:
+  `EmployerDoc`, `UserDoc`, `EmployeeDoc`, `AttendanceDoc`,
+  `LeaveApplicationDoc`, `LeaveBalanceDoc`, `PayrollRunDoc`,
+  `PayrollItemDoc` (plus existing `StudentDoc`). Each module also exports
+  `*_INDEXES` tuples so `services/migrate.py` can pull them via a
+  conventional import path.
+- Zero behaviour or API contract changes — backend imports clean, captcha
+  + login + features end-to-end pass, and pytest core suites
+  (`test_features_framework.py`, `test_timezone.py`, `backend_test.py`,
+  `test_security_and_config.py`) **47/47 PASS**.
+
 ## Implemented (Jun 14, 2026 — v12 / Resync to Sheets + Phase 4 rename `tenants` → `employers`)
 
 **Resync to Sheets**

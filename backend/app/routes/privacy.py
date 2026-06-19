@@ -5,10 +5,10 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from ..db import db, employer_db
 from ..deps import get_current_user, require_role
+from ..schemas.privacy import ConsentSet
 from ..services.audit import audit
 from ..utils import gen_id, now_utc
 
@@ -24,10 +24,6 @@ CONSENT_KEYS = [
 MANDATORY_KEYS = {"data_processing"}
 
 ERASURE_NOTICE_DAYS = 30
-
-
-class ConsentSet(BaseModel):
-    consents: dict  # { key: bool }
 
 
 @router.get("/privacy")

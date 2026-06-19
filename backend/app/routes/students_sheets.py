@@ -10,10 +10,10 @@ import logging
 import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field
 
 from ..db import db
 from ..deps import require_feature
+from ..schemas.students import SheetConfigurePayload
 from ..services import sheets as sheets_svc
 from ..services.audit import audit
 from ..utils import gen_id, now_utc
@@ -30,11 +30,6 @@ def _extract_sheet_id(url_or_id: str) -> str:
     s = (url_or_id or "").strip()
     m = _SHEET_ID_FROM_URL.search(s)
     return m.group(1) if m else s
-
-
-class SheetConfigurePayload(BaseModel):
-    # Accept either a raw spreadsheet id or a full Google Sheets URL.
-    url_or_id: str = Field(..., min_length=10)
 
 
 @router.get("/students/_sheets/info")

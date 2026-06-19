@@ -6,13 +6,12 @@ configuration lives in `students_sheets.py`.
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
 
 from ..db import employer_db
 from ..deps import require_feature
+from ..schemas.students import StudentIn
 from ..services.audit import audit
 from ..services.students_service import (
     can_access,
@@ -23,36 +22,6 @@ from ..services.students_service import (
 from ..utils import gen_id, now_utc
 
 router = APIRouter(tags=["students"])
-
-
-class StudentIn(BaseModel):
-    name: str = Field(..., min_length=1, max_length=120)
-    fathers_name: Optional[str] = ""
-    mothers_name: Optional[str] = ""
-    dob: Optional[str] = ""
-    aadhaar: Optional[str] = ""
-    mobile: Optional[str] = ""
-    alt_mobile: Optional[str] = ""
-    email: Optional[str] = ""
-    category: Optional[str] = ""
-    gender: Optional[str] = ""
-    address: Optional[str] = ""
-    city: Optional[str] = ""
-    state: Optional[str] = ""
-    pin: Optional[str] = ""
-    tenth_pass_year: Optional[str] = ""
-    tenth_school: Optional[str] = ""
-    tenth_board: Optional[str] = ""
-    tenth_percent: Optional[str] = ""
-    twelfth_pass_year: Optional[str] = ""
-    twelfth_school: Optional[str] = ""
-    twelfth_board: Optional[str] = ""
-    twelfth_percent: Optional[str] = ""
-    grad_percent: Optional[str] = ""
-    pg_percent: Optional[str] = ""
-    department: Optional[str] = ""
-    course: Optional[str] = ""
-    subjects: Optional[str] = ""
 
 
 @router.get("/students")

@@ -1,0 +1,18 @@
+# Pre-commit configuration — runs lightweight static checks before every commit.
+#
+# Setup (one-time, per dev machine):
+#   pip install pre-commit
+#   pre-commit install
+#
+# Manual run across the whole repo:
+#   pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: no-inline-basemodels-in-routes
+        name: Block inline Pydantic models inside backend/app/routes/
+        entry: bash -c 'cd backend && python -m app.scripts.check_routes_no_basemodel'
+        language: system
+        pass_filenames: false
+        files: ^backend/app/routes/.*\.py$
+        types: [python]
