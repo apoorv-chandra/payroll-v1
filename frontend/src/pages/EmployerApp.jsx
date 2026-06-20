@@ -126,7 +126,13 @@ function Overview() {
         <StatTile label="This Month" value={monthName(new Date().getMonth() + 1)} icon={ScrollText} hint="Run payroll →" />
       </div>
 
-      {hasStudents && <StudentsModuleCard sheetsInfo={sheetsInfo} onOpen={() => navigate("/school")} />}
+      {hasStudents && (
+        <StudentsModuleCard
+          sheetsInfo={sheetsInfo}
+          onOpen={() => navigate("/school")}
+          onSetupSheets={() => navigate("/school?setup=sheets")}
+        />
+      )}
 
       <div className="grid lg:grid-cols-2 gap-4 mt-6">
         <Card>
@@ -170,14 +176,17 @@ function Overview() {
   );
 }
 
-function StudentsModuleCard({ sheetsInfo, onOpen }) {
+function StudentsModuleCard({ sheetsInfo, onOpen, onSetupSheets }) {
   const configured = !!sheetsInfo?.master_sheet_id;
   // Three visual states: loading (sheetsInfo === null), needs configure (no master_sheet_id),
-  // sync active (master_sheet_id present). All three states route the click to /school.
+  // sync active (master_sheet_id present).
+  //  • "Set up" routes to /school?setup=sheets which opens the modal directly.
+  //  • "Manage" / card body routes to /school for the regular list view.
+  const primaryClick = configured ? onOpen : onSetupSheets;
   return (
     <Card
       className="mt-4 cursor-pointer hover:border-ink transition-colors"
-      onClick={onOpen}
+      onClick={primaryClick}
       data-testid="employer-students-module-card"
     >
       <div className="flex items-start justify-between gap-4">
@@ -212,7 +221,7 @@ function StudentsModuleCard({ sheetsInfo, onOpen }) {
         </div>
         <Button
           variant="secondary"
-          onClick={(e) => { e.stopPropagation(); onOpen(); }}
+          onClick={(e) => { e.stopPropagation(); primaryClick(); }}
           data-testid="employer-manage-students-btn"
         >
           {configured ? "Manage" : "Set up"} <ArrowRight className="h-4 w-4" />

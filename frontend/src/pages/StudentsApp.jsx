@@ -13,7 +13,7 @@
  */
 import React, { useEffect, useState } from "react";
 import {
-  Routes, Route, useNavigate, useParams, Link, Navigate,
+  Routes, Route, useNavigate, useParams, useSearchParams, Link, Navigate,
 } from "react-router-dom";
 import {
   GraduationCap, Search, Plus, Upload, Trash2, ExternalLink, ArrowLeft,
@@ -118,6 +118,9 @@ function StudentsList({ user }) {
   const [showSheets, setShowSheets] = useState(false);
   const [sheetsInfo, setSheetsInfo] = useState(null);
   const navigate = useNavigate();
+  // `?setup=sheets` opens the Google Sheets configure modal directly — used
+  // by the "Set up" button on the employer dashboard's Students module card.
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const isAdmin = user.role === "super_admin" || user.role === "employer";
 
@@ -140,6 +143,17 @@ function StudentsList({ user }) {
     } catch { /* noop */ }
   };
   useEffect(() => { if (isAdmin) loadSheetsInfo(); /* eslint-disable-next-line */ }, [isAdmin]);
+
+  // When arriving with `?setup=sheets`, auto-open the configure modal once
+  // sheets info has loaded, then strip the query param so refreshing the page
+  // doesn't keep re-opening it.
+  useEffect(() => {
+    if (isAdmin && sheetsInfo && searchParams.get("setup") === "sheets") {
+      setShowSheets(true);
+      searchParams.delete("setup");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [isAdmin, sheetsInfo, searchParams, setSearchParams]);
 
   return (
     <>
