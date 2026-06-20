@@ -1,4 +1,6 @@
-# Environment and credential files
+# =============================================================================
+# Environment & credentials — never commit, never push
+# =============================================================================
 .env
 .env.*
 *.env
@@ -7,11 +9,13 @@ credentials.json
 *.key
 .credentials
 
-# Test / dev secrets — never deploy
+# Test / dev secrets — keep local-only
 memory/test_credentials.md
 test_reports/
 
+# =============================================================================
 # Python
+# =============================================================================
 __pycache__/
 *.pyc
 *.pyo
@@ -20,90 +24,46 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 
+# =============================================================================
 # Node / React
+# =============================================================================
 node_modules/
 build/
-dist/
 .cache/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Build artefacts — but keep the published APK so it can be downloaded
+# straight from the GitHub repo. To make the !exception work we have to
+# ignore the *contents* of `dist/` rather than the directory itself,
+# otherwise git won't recurse into it.
+dist/*
+!dist/payroll-debug.apk
+
+# =============================================================================
+# Android (Capacitor wrapper) — Gradle / IDE intermediates
+# =============================================================================
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/local.properties
+frontend/android/captures/
+*.iml
+
+# Locally-installed Android SDK + JDK we cache during APK builds — huge, never push
+android-sdk/
+
+# =============================================================================
 # OS / editor
+# =============================================================================
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
+
+# =============================================================================
+# Emergent platform internals — required locally, not part of the source repo
+# =============================================================================
+.emergent/
