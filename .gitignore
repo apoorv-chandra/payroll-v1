@@ -82,3 +82,6 @@ Thumbs.db
 # Emergent platform internals — required locally, not part of the source repo
 # =============================================================================
 .emergent/
+.env
+.env.*
+*.env
