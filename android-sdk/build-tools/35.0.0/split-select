@@ -1,0 +1,2 @@
+#!/bin/sh
+exec qemu-x86_64-static "/app/android-sdk/build-tools/35.0.0/split-select.x86_64" "$@"

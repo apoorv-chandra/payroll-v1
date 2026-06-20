@@ -1,0 +1,2 @@
+#!/bin/sh
+exec qemu-x86_64-static "/app/android-sdk/platform-tools/hprof-conv.x86_64" "$@"

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec qemu-x86_64-static "/app/android-sdk/build-tools/35.0.0/aapt.x86_64" "$@"

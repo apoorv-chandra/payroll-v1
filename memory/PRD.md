@@ -50,6 +50,31 @@ User shared a comprehensive **Payroll Build Guide v2** PDF: a multi-tenant payro
 - **Principal** (elevated employee) — can approve/reject leaves on behalf of employer.
 - **Employee** — marks attendance (today + 30-day backdate, blink-liveness + GPS), applies leave, downloads own salary slips.
 
+## Implemented (Feb 21, 2026 — v12.2 / Android APK + CI guard)
+
+**Android debug APK built end-to-end in this container**
+- One-time toolchain setup at `/app/scripts/setup-android-sdk.sh`: installs
+  JDK 17 (Gradle) + JDK 21 aarch64 (Capacitor 6 plugins), Android SDK
+  cmdline-tools, build-tools 35.0.0, platform-tools, and wraps every x86_64
+  ELF binary with a qemu-x86_64-static shell wrapper so Gradle runs
+  unchanged on this aarch64 container.
+- Reproducible build at `/app/scripts/build-android-apk.sh`: runs
+  `yarn build → cap sync → gradlew assembleDebug` with the local SDK aapt2
+  override, then copies the APK to `/app/dist/payroll-debug.apk` + sha256s it.
+- Output: **`/app/dist/payroll-debug.apk`** — 7.6 MB, package
+  `com.norratech.payrollstudents`, label "Payroll & Students", compiled
+  against SDK 35 (Android 15), permissions: INTERNET, location, camera,
+  media images.
+- `MOBILE_API.md` § 6 updated with the new build flow.
+
+**CI guard against inline Pydantic models in `routes/`**
+- AST-based scanner at `app/scripts/check_routes_no_basemodel.py` — fails
+  exit-code 1 on any `class … (BaseModel)` inside `app/routes/*.py`.
+- Pytest test `tests/test_routes_no_inline_basemodel.py` runs the scan as
+  part of the regression suite (48/48 PASS — 47 prior + 1 new guard).
+- `.pre-commit-config.yaml` at repo root provides an optional client-side
+  hook for devs who run `pre-commit install`.
+
 ## Implemented (Feb 21, 2026 — v12.1 / Backend schemas + models centralisation)
 
 **Refactor — `app/schemas/` split + canonical `app/models/`**

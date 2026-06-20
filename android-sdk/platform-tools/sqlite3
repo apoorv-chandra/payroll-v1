@@ -1,0 +1,2 @@
+#!/bin/sh
+exec qemu-x86_64-static "/app/android-sdk/platform-tools/sqlite3.x86_64" "$@"

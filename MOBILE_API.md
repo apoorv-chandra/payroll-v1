@@ -139,9 +139,32 @@ After login:
 
 ## 6. Build the Capacitor APK
 
-```bash
-# Prereqs (one-time): JDK 17, Android Studio (or Android SDK + cmdline tools), ANDROID_HOME env var.
+### Inside this container (verified working)
 
+A pre-built debug APK already lives at **`/app/dist/payroll-debug.apk`**
+(7.6 MB, package `com.norratech.payrollstudents`, label "Payroll & Students",
+compiled against SDK 35).
+
+To rebuild from source:
+
+```bash
+# One-time per fresh container (installs JDK 17 + 21, Android SDK 35,
+# qemu-x86_64-static + ARM-emulation wrappers — see comments in the script).
+/app/scripts/setup-android-sdk.sh
+
+# Every subsequent build:
+/app/scripts/build-android-apk.sh
+# → /app/dist/payroll-debug.apk
+```
+
+The setup script handles the aarch64 host problem: Google ships only x86_64
+build-tools / platform-tools, so each x86_64 ELF binary is renamed to
+`<name>.x86_64` and replaced with a shell wrapper that exec's it under
+`qemu-x86_64-static`. Gradle therefore runs unchanged.
+
+### Inside Android Studio (recommended for normal dev)
+
+```bash
 cd /app/frontend
 yarn build                          # CRA production build → ./build
 npx cap sync android                # copy build → android/app/src/main/assets/public
