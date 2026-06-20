@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
-import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
+import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollText, Download, Plus, Home, History, Shield, WifiOff, CloudUpload, Trash2, ChevronDown, ChevronUp, Send, Check, X, Banknote, Calculator } from "lucide-react";
+import { Camera, MapPin, LogIn, LogOut as LogOutIcon, Calendar, Clock, ScrollText, Download, Plus, Home, History, Shield, WifiOff, CloudUpload, Trash2, ChevronDown, ChevronUp, Send, Banknote, Calculator } from "lucide-react";
 import FaceLiveness from "../components/FaceLiveness";
 import ConsentGate from "../components/ConsentGate";
 import PrivacyNotice from "../components/PrivacyNotice";
@@ -754,7 +754,8 @@ function HistoryScreen() {
   const [year, setYear] = useState(now.getFullYear());
   const [items, setItems] = useState([]);
   const load = async () => { setItems(null); try { setItems((await api.get("/attendance/history", { params: { month, year } })).data); } catch { setItems([]); } };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [month, year]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [month, year]);
 
   return (
     <div>
@@ -799,7 +800,8 @@ function LeavesScreen() {
     setBalances(b.data); setApps(a.data);
     if (b.data.length && !form.leave_type) setForm((f) => ({ ...f, leave_type: b.data[0].leave_type }));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
 
   const apply = async (e) => {
     e?.preventDefault?.(); setBusy(true); setErr("");
@@ -991,6 +993,7 @@ function AccountantPayrollRun() {
     const { data } = await api.get(`/payroll/runs/${runId}`);
     setRun(data.run); setItems(data.items);
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [runId]);
 
   const submit = async () => {

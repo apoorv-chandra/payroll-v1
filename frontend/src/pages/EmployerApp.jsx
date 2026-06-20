@@ -1,10 +1,10 @@
 /* eslint-disable react/no-unescaped-entities */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Shell from "../components/Shell";
 import { Button, Card, Input, Select, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate, fmtINR, fmtTime, monthName } from "../lib/api";
-import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, Send, UserPlus, Copy, Link2, KeyRound, Eye, RotateCw, LayoutGrid, GraduationCap, ExternalLink, ArrowRight } from "lucide-react";
+import { LayoutDashboard, Users, Calendar, ScrollText, Plus, Trash2, Pencil, Settings, MapPin, Check, X, Download, Banknote, UserPlus, Copy, Link2, KeyRound, Eye, RotateCw, LayoutGrid, GraduationCap, ExternalLink, ArrowRight } from "lucide-react";
 import GeofenceMap from "../components/GeofenceMap";
 import PinMap from "../components/PinMap";
 import useConfirm from "../lib/useConfirm";
@@ -951,6 +951,7 @@ function PayrollRun() {
     const { data } = await api.get(`/payroll/runs/${runId}`);
     setRun(data.run); setItems(data.items);
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [runId]);
 
   const approve = async (decision) => {

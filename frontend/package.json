@@ -2,6 +2,12 @@
   "name": "payroll-attendance-pwa",
   "version": "1.0.0",
   "private": true,
+  "browser": {
+    "fs": false,
+    "path": false,
+    "crypto": false,
+    "os": false
+  },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
     "@capacitor/app": "^8.1.0",
@@ -19,14 +25,15 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^7",
+    "@craco/craco": "^7.1.0",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test"
+    "start": "craco start",
+    "build": "craco build",
+    "test": "craco test"
   },
   "browserslist": {
     "production": [

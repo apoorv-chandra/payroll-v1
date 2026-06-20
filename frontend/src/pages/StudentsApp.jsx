@@ -54,7 +54,8 @@ export default function StudentsApp() {
 
   // Ensure features are loaded before children render — avoids a 403 race
   // where StudentsList fires GET /api/students before the cache hydrates.
-  useEffect(() => { if (featLoading) reload(); /* eslint-disable-next-line */ }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (featLoading) reload(); }, []);
 
   if (featLoading) {
     return <div className="min-h-screen flex items-center justify-center"><Spinner /></div>;
@@ -129,7 +130,8 @@ function StudentsList({ user }) {
       setData({ items: [], total: 0, loading: false });
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
 
   const loadSheetsInfo = async () => {
     try {
@@ -457,7 +459,8 @@ function StudentDetail({ user }) {
     try { const { data } = await api.get(`/students/${id}`); setS(data); }
     catch (e) { setErr(fmtErr(e)); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [id]);
 
   const onSave = async (patch) => {
     setSaving(true); setMsg("");
