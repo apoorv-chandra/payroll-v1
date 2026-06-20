@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..db import db, employer_db
+from ..db import db, employer_db, employer_db_name
 from ..deps import require_role
 from ..schemas import CreateEmployerRequest, PlatformSettingsUpdate
 from ..security import hash_password
@@ -82,6 +82,10 @@ async def list_employers(user: dict = Depends(require_role("super_admin"))):
         t["id"] = t["_id"]
         t["admin"] = public_user(admin)
         t["employee_count"] = emp_count
+        # The Mongo DB that holds this employer's per-tenant data. Surfaced
+        # to the super-admin UI so ops can correlate a card with the underlying
+        # `payroll_db_t_<hash>` database during debugging / backup tasks.
+        t["db_name"] = employer_db_name(t["_id"])
         # Default to ["payroll"] for legacy tenants that haven't been backfilled yet.
         t["enabled_features"] = t.get("enabled_features") or ["payroll"]
         out.append({k: v for k, v in t.items() if k != "_id"})

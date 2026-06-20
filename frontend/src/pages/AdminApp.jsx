@@ -4,7 +4,7 @@ import Shell from "../components/Shell";
 import { Button, Card, Input, PageHeader, Empty, Modal, Badge, StatTile, Spinner } from "../components/ui/Primitives";
 import { api, fmtErr, fmtDate } from "../lib/api";
 import useConfirm from "../lib/useConfirm";
-import { LayoutDashboard, Building2, ClipboardList, Trash2, Plus, Users, Briefcase, ScrollText, Settings as SettingsIcon } from "lucide-react";
+import { LayoutDashboard, Building2, ClipboardList, Trash2, Plus, Users, Briefcase, ScrollText, Settings as SettingsIcon, Database } from "lucide-react";
 
 const NAV = [
   { id: "dashboard", to: "/admin", end: true, label: "Overview", icon: LayoutDashboard },
@@ -156,6 +156,20 @@ function Employers() {
                   ))}
                 </div>
               </div>
+              {t.db_name && (
+                <div className="mt-3 px-3 py-2 bg-gray-50 border border-gray-200 rounded-md" title="MongoDB database name — useful for ops, backups and restore">
+                  <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5 flex items-center gap-1">
+                    <Database className="h-3 w-3" /> Mongo database
+                  </div>
+                  <div
+                    className="font-mono text-[11px] text-ink select-all break-all leading-snug cursor-pointer"
+                    onClick={() => { navigator.clipboard?.writeText(t.db_name); }}
+                    data-testid={`db-name-${t.id}`}
+                  >
+                    {t.db_name}
+                  </div>
+                </div>
+              )}
               <div className="mt-4 flex gap-2 justify-end flex-wrap">
                 <Button variant="secondary" onClick={() => setDrillDown(t)} data-testid={`view-employees-${t.id}`}>
                   <Users className="h-4 w-4" /> View employees
