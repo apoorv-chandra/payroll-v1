@@ -1,9 +1,24 @@
 # =============================================================================
 # Environment & credentials — never commit, never push
 # =============================================================================
-.env
-.env.*
-*.env
+# Backend secrets — always local-only
+backend/.env
+backend/.env.*
+
+# Frontend env files: the per-environment defaults (`.env`, `.env.development`,
+# `.env.production`, `.env.example`) are config (not secrets) and MUST be
+# committed — that's what makes builds reproducible. Only the `.local`
+# overrides are personal and gitignored.
+frontend/.env.local
+frontend/.env.*.local
+frontend/.env.development.local
+frontend/.env.production.local
+
+# Wildcard catches stray .env files anywhere else (keep last so the explicit
+# allows above win).
+.env.local
+*.env.local
+
 credentials.json
 *.pem
 *.key

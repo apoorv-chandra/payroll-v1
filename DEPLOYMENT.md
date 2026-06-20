@@ -4,6 +4,36 @@ This guide walks you through deploying the Payroll & Attendance platform to prod
 
 ---
 
+## Frontend environment file convention
+
+CRA bakes `REACT_APP_*` values into the JS bundle at **build time**. Once compiled, those URLs are immutable strings inside `main.<hash>.js` — you cannot change them after the fact. This repo uses CRA's per-environment loading rules to make it structurally impossible to bake the wrong URL into a production build:
+
+| File | Status | Purpose | Loaded by |
+|---|---|---|---|
+| `frontend/.env` | committed | Cross-environment defaults only. **No backend URL** — that's owned by the per-env files. | every build |
+| `frontend/.env.development` | committed | Dev-server settings + dev preview URL. | `yarn start` |
+| `frontend/.env.production` | committed | Production Render URL + bundle optimisations. | `yarn build`, including the Android APK |
+| `frontend/.env.example` | committed | Template + documentation. | (reference) |
+| `frontend/.env.local`, `frontend/.env.{dev,prod}.local` | **gitignored** | Personal local overrides — e.g. point local frontend at prod backend while reproducing a customer issue. | matches above |
+
+CRA's resolution order (later wins): `.env` → `.env.<NODE_ENV>` → `.env.local` → `.env.<NODE_ENV>.local`.
+
+### Why this matters for the Android APK
+
+The APK is a bundled CRA build inside a Capacitor wrapper. The bundle calls **whatever `REACT_APP_BACKEND_URL` was set when `yarn build` ran**. `scripts/build-android-apk.sh`:
+
+1. Refuses to build if `.env.production` is missing.
+2. Warns + waits 5 s if the URL looks like a dev URL (`localhost`, `*.preview.emergentagent.com`, `ngrok`).
+3. After building, **unzips the APK and greps the bundled JS** to confirm the expected URL is actually inside. Fails the script if not.
+
+Result: every APK that ships is guaranteed to be calling production.
+
+### Why Cloudflare Pages and Render still work
+
+Both platforms set `REACT_APP_BACKEND_URL` (and other vars) in their own dashboards. CRA loads dashboard vars *after* the `.env.*` files, so the dashboard wins for those platforms. The committed `.env.production` is the fallback for every other context (local builds, mobile APK, CI).
+
+---
+
 ## Path A — Single VPS with Docker Compose (simplest, $5–10/mo)
 
 **Best for:** small businesses, internal tools, MVP launches.
