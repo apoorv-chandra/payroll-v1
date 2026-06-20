@@ -67,7 +67,7 @@ In the Emergent chat input, click **"Save to GitHub"** to push `/app` to a new G
    | `JWT_EXPIRES_HOURS` | `12` |
    | `ADMIN_EMAIL` | `admin@yourdomain.com` |
    | `ADMIN_PASSWORD` | (your strong password) |
-   | `CORS_ORIGINS` | `https://payroll.pages.dev,https://your-custom-domain.com` |
+   | `CORS_ORIGINS` | `https://payroll.pages.dev,https://your-custom-domain.com,https://localhost,capacitor://localhost` *(last two are required so the Android + iOS Capacitor apps can call the API — the WebView's origin is `https://localhost` on Android and `capacitor://localhost` on iOS)* |
    | `APP_BASE_URL` | `https://payroll-api.onrender.com` |
    | `TIMEZONE` | `Asia/Kolkata` |
 
