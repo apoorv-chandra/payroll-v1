@@ -31,6 +31,12 @@ class Settings:
 
     # --- App -------------------------------------------------------------
     APP_BASE_URL: str = os.environ.get("APP_BASE_URL", "")
+
+    # CORS — when set explicitly (comma-separated origins), uses that exact
+    # allow-list. When left as the "*" sentinel we switch to `CORS_ORIGIN_REGEX`
+    # at app startup so the middleware reflects the caller's origin instead of
+    # emitting a literal "*" (required when `allow_credentials=True`, since
+    # the CORS spec forbids the combination).
     CORS_ORIGINS: list[str] = [
         o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
     ] or ["*"]

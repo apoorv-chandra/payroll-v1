@@ -2,12 +2,20 @@ import axios from "axios";
 
 const BASE = process.env.REACT_APP_BACKEND_URL;
 
+// `withCredentials: false` is intentional. Auth flows through the Bearer
+// token attached below by the request interceptor; the cookie that
+// /api/auth/login sets is a vestigial secondary mechanism kept only for
+// same-origin browser users. Sending credentials cross-origin would force
+// the response to include `Access-Control-Allow-Origin: <exact-origin>`
+// (the spec forbids `*` with credentials), which the upstream proxy /
+// edge CDN doesn't always honour — and that breaks the Capacitor APK
+// where the WebView origin (`https://localhost`) is cross-origin to the
+// backend host. Bearer-only sidesteps that whole class of failures.
 export const api = axios.create({
   baseURL: `${BASE}/api`,
-  withCredentials: true,
+  withCredentials: false,
 });
 
-// Attach token from localStorage too (cookie + bearer for safety)
 api.interceptors.request.use((cfg) => {
   const t = localStorage.getItem("access_token");
   if (t) cfg.headers.Authorization = `Bearer ${t}`;

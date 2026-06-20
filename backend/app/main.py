@@ -84,13 +84,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Payroll & Attendance API", lifespan=lifespan, version="1.0.0")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+    # CORS — when CORS_ORIGINS is the wildcard sentinel ("*") we switch to a
+    # regex-based allow-all that REFLECTS the caller's origin. This is the only
+    # way to combine `allow_credentials=True` with an open allow-list (the spec
+    # forbids the literal "*" in `Access-Control-Allow-Origin` when credentials
+    # are sent). Needed for the Capacitor APK which loads the SPA from
+    # `https://localhost` and calls the backend cross-origin.
+    cors_kwargs = dict(
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    if settings.CORS_ORIGINS == ["*"]:
+        cors_kwargs["allow_origin_regex"] = ".*"
+    else:
+        cors_kwargs["allow_origins"] = settings.CORS_ORIGINS
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
     app.add_middleware(SecurityHeadersMiddleware)
 
     api = APIRouter(prefix="/api")
