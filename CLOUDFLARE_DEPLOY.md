@@ -68,7 +68,7 @@ In the Emergent chat input, click **"Save to GitHub"** to push `/app` to a new G
    | `ADMIN_EMAIL` | `admin@yourdomain.com` |
    | `ADMIN_PASSWORD` | (your strong password) |
    | `CORS_ORIGINS` | `https://payroll.pages.dev,https://your-custom-domain.com,https://localhost,capacitor://localhost` *(last two are required so the Android + iOS Capacitor apps can call the API — the WebView's origin is `https://localhost` on Android and `capacitor://localhost` on iOS)* |
-   | `APP_BASE_URL` | `https://payroll-api.onrender.com` |
+   | `APP_BASE_URL` | `https://payroll-api.onrender.com` *(public URL of this backend — **required** for Google Sheets file links to be clickable; missing/empty value writes broken relative URLs into the sheet)* |
    | `TIMEZONE` | `Asia/Kolkata` |
 
    Optional (skip for now if you don't have keys yet — features just stay off):

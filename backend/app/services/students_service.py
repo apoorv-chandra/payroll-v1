@@ -92,6 +92,17 @@ def signed_file_url(employer_id: str, file_id: str, base_url: str = "") -> str:
     # Default to APP_BASE_URL so Google Sheets cells get absolute URLs.
     # Relative paths in =HYPERLINK don't work — Sheets has no host context.
     root = (base_url or settings.APP_BASE_URL or "").rstrip("/")
+    if not root:
+        # Loud warning instead of silently writing broken relative URLs into
+        # the customer's Google Sheet. Surfaces the misconfiguration in
+        # Render logs the very first time a file URL is generated, so ops
+        # can set APP_BASE_URL before more rows go in with dead links.
+        logger.warning(
+            "APP_BASE_URL is not set — file URLs written to Google Sheets "
+            "will be RELATIVE and won't resolve. Set APP_BASE_URL to your "
+            "public backend host (e.g. https://payroll-api.example.com) "
+            "and re-run the Resync action."
+        )
     return f"{root}/api/students/files/{file_id}?t={token}"
 
 

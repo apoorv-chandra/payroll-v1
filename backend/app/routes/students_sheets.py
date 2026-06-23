@@ -11,6 +11,7 @@ import re
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
+from ..config import settings
 from ..db import db
 from ..deps import require_feature
 from ..schemas.students import SheetConfigurePayload
@@ -36,11 +37,18 @@ def _extract_sheet_id(url_or_id: str) -> str:
 async def sheets_info(user: dict = Depends(require_feature("students"))):
     """Tells the UI whether Sheets sync is configured + the master sheet URL."""
     tenant = await db.employers.find_one({"_id": user["employer_id"]})
+    # File URLs written to the master sheet need an absolute hostname or
+    # Google Sheets resolves them against docs.google.com → 404. Surface
+    # this misconfiguration to the UI so the admin can fix it before more
+    # rows get dead links.
+    app_base_url = (settings.APP_BASE_URL or "").strip()
     return {
         "configured": sheets_svc.is_configured(),
         "service_account_email": sheets_svc.service_account_email(),
         "master_sheet_id": (tenant or {}).get("students_sheet_id"),
         "master_sheet_url": (tenant or {}).get("students_sheet_url"),
+        "app_base_url": app_base_url,
+        "app_base_url_ok": bool(app_base_url),
     }
 
 

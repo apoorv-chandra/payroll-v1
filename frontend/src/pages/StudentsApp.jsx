@@ -406,6 +406,18 @@ function SheetsConfigureModal({ open, info, onClose, onSaved }) {
         placeholder="https://docs.google.com/spreadsheets/d/…"
         data-testid="sheets-url-input"
       />
+      {info && info.configured && info.app_base_url_ok === false && (
+        <div
+          className="mt-3 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2"
+          data-testid="sheets-app-base-url-warning"
+        >
+          <b>Heads-up:</b> <code>APP_BASE_URL</code> is not set on the backend.
+          File links written into the Google Sheet will be <i>relative</i> and
+          won&apos;t open when clicked. Set <code>APP_BASE_URL</code> to your public
+          backend URL (e.g.&nbsp;<code>https://payroll-api-x.onrender.com</code>)
+          in your hosting dashboard and re-run <b>Resync</b>.
+        </div>
+      )}
       {err && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-md px-3 py-2" data-testid="sheets-error">{err}</div>}
     </Modal>
   );
